@@ -1,5 +1,5 @@
 /*
- * Rub3cK0r3 - http server
+ * Rub3cK0r3 - my own http server
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -15,8 +15,16 @@
  * along with this program; if not, write to the Free Software
  */
 
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <unistd.h>
 #include "srVR.h"
 
+// Function to initialize connection from serverfd giving the sockaddr_in and its size
 int init_connection(int serverfd, struct sockaddr_in *myaddr,
                     socklen_t addr_size) {
   /*
@@ -53,7 +61,7 @@ int init_connection(int serverfd, struct sockaddr_in *myaddr,
   return serverfd;
 }
 
-// It returns the serverfd
+// It returns the serverfd, already working for accepting the cliendtf
 int init_server() {
   /*
    * File descriptor is an integer in your application that refers to the file
@@ -119,6 +127,7 @@ int init_server() {
   return serverfd;
 }
 
+// It could be interpreted as the communication from client to user in form of message
 char *init_message(int clientfd, char *buffer) {
   /*
    * The  recv()  call is normally used only on a connected socket (see
@@ -148,16 +157,16 @@ char *init_message(int clientfd, char *buffer) {
 
 int main() {
   struct sockaddr_in clientaddr;
-  socklen_t client_addr_size = sizeof(clientaddr);
-  int serverfd = init_server();
+  socklen_t client_addr_size = sizeof(clientaddr); // size of previous address
+  int serverfd = init_server(); // already initialized
   int clientfd;
-  // The server has NOT been correctly initialized
+  // The server initialization has FAILED
   if (serverfd == -1) {
     return -1;
   }
   printf("Escuchando por el puerto %d...\n", SERVER_PORT);
 
-  // infinite loop
+
   while (1) {
     /*
      * The  accept()  system call is used with connection-based socket types
@@ -175,13 +184,17 @@ int main() {
     }
 
     char buffer[1024];
+    // message from the first communications between the two
     char *mensaje = init_message(clientfd, buffer);
+    // communication has FAILED
     if (mensaje == NULL) {
       close(clientfd);
       continue;
     }
     printf("received: %s\n", mensaje);
 
+    
+    // CORRECTLY FORMATTED!
     char *response = "HTTP/1.1 200 OK\r\n"
                      "Content-Type: text/plain\r\n"
                      "Content-Length: 39\r\n"
@@ -202,6 +215,8 @@ int main() {
      * sendto(sockfd, buf, size, flags, NULL, 0);
      * The argument sockfd is the file descriptor of the sending socket.
      */
+     
+    // now we send our own response for better comunication
     send(clientfd, response, strlen(response), 0);
     close(clientfd);
   }

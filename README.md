@@ -29,7 +29,7 @@ If you want to understand how HTTP and sockets work under the hood without frame
 
 ---
 
-## Build & Run
+## Build & Run with...
 
 ```bash
 gcc -o srVR src/srVR.c

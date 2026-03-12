@@ -22,7 +22,13 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <stdlib.h>
+#include <errno.h>
+#include <signal.h>
 #include "srVR.h"
+
+volatile sig_atomic_t running = 1;
+int serverfd;
 
 // Function to initialize connection from serverfd giving the sockaddr_in and its size
 int init_connection(int serverfd, struct sockaddr_in *myaddr,
@@ -37,6 +43,11 @@ int init_connection(int serverfd, struct sockaddr_in *myaddr,
    * usando bind() a un conector SOCK_STREAM antes de que éste pueda recibir
    * conexiones (vea accept(2)).
    */
+
+  // This prevents “Address already in use” problems when restarting servers.
+  int opt = 1;
+  setsockopt(serverfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
 
   if (bind(serverfd, (struct sockaddr *)myaddr, addr_size) == -1) {
     perror("Error : Socket has not been bound");
@@ -147,7 +158,7 @@ char *init_message(int clientfd, char *buffer) {
 
   int bytes_received = recv(clientfd, buffer, 1023, 0);
   if (bytes_received <= 0) {
-    perror("Error : Could not receive data");
+    perror( RED "Error : Could not receive data" RESET);
     return NULL;
   }
 
@@ -155,19 +166,25 @@ char *init_message(int clientfd, char *buffer) {
   return buffer;
 }
 
+// achieving gracefull shutdown on the server and catching the signal
+void handle_sigint(int sig) {
+  running = 0;
+  close(serverfd);
+}
+
 int main() {
   struct sockaddr_in clientaddr;
   socklen_t client_addr_size = sizeof(clientaddr); // size of previous address
-  int serverfd = init_server(); // already initialized
+  serverfd = init_server(); // already initialized
   int clientfd;
   // The server initialization has FAILED
   if (serverfd == -1) {
     return -1;
   }
-  printf("Escuchando por el puerto %d...\n", SERVER_PORT);
+  printf(GREEN "Escuchando por el puerto %d...\n" RESET, SERVER_PORT);
 
-
-  while (1) {
+  signal(SIGINT, handle_sigint);
+  while (running) {
     /*
      * The  accept()  system call is used with connection-based socket types
      * (SOCK_STREAM, SOCK_SEQPACKET).  It extracts the first connection request
@@ -178,10 +195,18 @@ int main() {
      */
     clientfd =
         accept(serverfd, (struct sockaddr *)&clientaddr, &client_addr_size);
+
+    // accept error handling..
     if (clientfd == -1) {
-      perror("Error : Could not accept");
+      if (!running) {
+        printf("\nShutting down server...\n");
+        break;
+      }
+
+      perror(RED "Error : Could not accept" RESET);
       continue;
     }
+
 
     char buffer[1024];
     // message from the first communications between the two
@@ -191,7 +216,7 @@ int main() {
       close(clientfd);
       continue;
     }
-    printf("received: %s\n", mensaje);
+    printf( GREEN "received: %s\n" RESET, mensaje);
 
     
     // CORRECTLY FORMATTED!

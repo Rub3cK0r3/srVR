@@ -87,17 +87,6 @@ srVR is ideal for:
 * Practicing C network programming
 * Gaining insight into server architecture without frameworks
 
----
-
-## 🔮 Possible Improvements
-
-* Add **multi-threading** for concurrent connections
-* Support more HTTP methods (POST, PUT, etc.)
-* Implement MIME type detection
-* Add logging of requests
-* Improve HTTP header parsing
-* Add HTTPS support via OpenSSL
-
 ## Build & Run with...
 
 ```bash

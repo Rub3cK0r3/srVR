@@ -1,0 +1,74 @@
+[
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-std=c11",
+      "-Wall",
+      "-Wextra",
+      "-pedantic",
+      "-g",
+      "-Iinclude",
+      "-c",
+      "-o",
+      "src/main.o",
+      "src/main.c"
+    ],
+    "directory": "/home/ruben/Desktop/srVR",
+    "file": "/home/ruben/Desktop/srVR/src/main.c",
+    "output": "/home/ruben/Desktop/srVR/src/main.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-std=c11",
+      "-Wall",
+      "-Wextra",
+      "-pedantic",
+      "-g",
+      "-Iinclude",
+      "-c",
+      "-o",
+      "src/server.o",
+      "src/server.c"
+    ],
+    "directory": "/home/ruben/Desktop/srVR",
+    "file": "/home/ruben/Desktop/srVR/src/server.c",
+    "output": "/home/ruben/Desktop/srVR/src/server.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-std=c11",
+      "-Wall",
+      "-Wextra",
+      "-pedantic",
+      "-g",
+      "-Iinclude",
+      "-c",
+      "-o",
+      "src/http.o",
+      "src/http.c"
+    ],
+    "directory": "/home/ruben/Desktop/srVR",
+    "file": "/home/ruben/Desktop/srVR/src/http.c",
+    "output": "/home/ruben/Desktop/srVR/src/http.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-std=c11",
+      "-Wall",
+      "-Wextra",
+      "-pedantic",
+      "-g",
+      "-Iinclude",
+      "-c",
+      "-o",
+      "src/router.o",
+      "src/router.c"
+    ],
+    "directory": "/home/ruben/Desktop/srVR",
+    "file": "/home/ruben/Desktop/srVR/src/router.c",
+    "output": "/home/ruben/Desktop/srVR/src/router.o"
+  }
+]

@@ -1,5 +1,6 @@
 # 🖥 srVR
 
+![Release](https://img.shields.io/github/v/release/Rub3cK0r3/srVR)
 ![C](https://img.shields.io/badge/language-C-blue)
 ![License](https://img.shields.io/badge/license-educational-lightgrey)
 ![OS](https://img.shields.io/badge/OS-POSIX-orange)

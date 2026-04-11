@@ -20,10 +20,33 @@
 #include "router.h"
 #include "server.h"
 
+/**
+ * @brief Global flag indicating whether the server should continue running.
+ *
+ * This variable is typically modified by signal handlers (e.g., SIGINT)
+ * to gracefully stop the server loop.
+ *
+ * @note Declared as volatile sig_atomic_t to ensure safe access in
+ *       asynchronous signal contexts.
+ */
 extern volatile sig_atomic_t srvr_running;
 
 static const char *LOG_PATH = "server.log";
 
+/**
+ * @brief Write a formatted log message with a severity level.
+ *
+ * Opens the log file, prepends a timestamp and severity level, and writes
+ * the formatted message. Each log entry is written on a new line.
+ *
+ * @param level String representing the log level (e.g., "INFO", "ERROR").
+ * @param fmt printf-style format string.
+ * @param ap Variable argument list corresponding to the format string.
+ *
+ * @note The log file is opened and closed on each call.
+ * @note If the file cannot be opened, the function silently returns.
+ * @note Not safe for use in signal handlers due to use of stdio and time functions.
+ */
 static void log_with_level(const char *level, const char *fmt, va_list ap) {
   FILE *fp = fopen(LOG_PATH, "a");
   if (!fp) {
@@ -44,6 +67,14 @@ static void log_with_level(const char *level, const char *fmt, va_list ap) {
   fclose(fp);
 }
 
+/**
+ * @brief Log an informational message.
+ *
+ * Formats and writes a message with the "INFO" level to the log file.
+ *
+ * @param fmt printf-style format string.
+ * @param ... Additional arguments corresponding to the format string.
+ */
 void log_info(const char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
@@ -51,6 +82,14 @@ void log_info(const char *fmt, ...) {
   va_end(ap);
 }
 
+/**
+ * @brief Log a warning message.
+ *
+ * Formats and writes a message with the "WARN" level to the log file.
+ *
+ * @param fmt printf-style format string.
+ * @param ... Additional arguments corresponding to the format string.
+ */
 void log_warn(const char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
@@ -58,6 +97,14 @@ void log_warn(const char *fmt, ...) {
   va_end(ap);
 }
 
+/**
+ * @brief Log an error message.
+ *
+ * Formats and writes a message with the "ERROR" level to the log file.
+ *
+ * @param fmt printf-style format string.
+ * @param ... Additional arguments corresponding to the format string.
+ */
 void log_error(const char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
@@ -65,6 +112,30 @@ void log_error(const char *fmt, ...) {
   va_end(ap);
 }
 
+/**
+ * @brief Load server configuration from a file.
+ *
+ * Reads a configuration file containing simple key=value pairs and
+ * populates the provided server_config structure. If the file cannot
+ * be opened, default values are used and the function still succeeds.
+ *
+ * Supported configuration keys:
+ *   - port        : Server listening port (integer)
+ *   - root        : Document root directory (string)
+ *   - use_epoll   : Enable epoll (0 or non-zero)
+ *
+ * Lines beginning with '#' or blank lines are ignored.
+ *
+ * @param path Path to the configuration file.
+ * @param cfg Pointer to a server_config structure to populate.
+ *
+ * @return 0 on success (including when file is missing).
+ *
+ * @note The configuration structure is initialized with default values
+ *       before parsing the file.
+ * @note Parsing is simple and does not handle whitespace trimming or
+ *       malformed input robustly.
+ */
 int load_server_config(const char *path, server_config *cfg) {
   cfg->port = SRVR_DEFAULT_PORT;
   strncpy(cfg->document_root, SRVR_DEFAULT_ROOT, sizeof(cfg->document_root));
@@ -111,6 +182,21 @@ int load_server_config(const char *path, server_config *cfg) {
   return 0;
 }
 
+/**
+ * @brief Set up a listening TCP socket for the server.
+ *
+ * Creates an IPv4 TCP socket, enables address reuse, binds it to
+ * INADDR_ANY and the configured port, and begins listening for
+ * incoming connections.
+ *
+ * @param cfg Pointer to server configuration.
+ *
+ * @return Socket file descriptor on success, -1 on error.
+ *
+ * @note On failure, an error message is printed using perror().
+ * @note The socket listens on all available network interfaces.
+ * @note The backlog is set to SOMAXCONN for maximum queue capacity.
+ */
 int server_listen(const server_config *cfg) {
   int serverfd = socket(AF_INET, SOCK_STREAM, 0);
   if (serverfd == -1) {
@@ -151,11 +237,32 @@ int server_listen(const server_config *cfg) {
   return serverfd;
 }
 
+/**
+ * @brief Arguments passed to a client handler thread.
+ *
+ * Contains the client socket file descriptor and a copy of the
+ * server configuration needed to handle the connection.
+ */
 typedef struct client_thread_args {
   int clientfd;
   server_config cfg;
 } client_thread_args;
 
+/**
+ * @brief Entry point for handling a client connection in a separate thread.
+ *
+ * This function is intended to be used as the start routine for a thread.
+ * It processes a single client connection, logs the event, invokes the
+ * request handler, and performs cleanup.
+ *
+ * @param arg Pointer to a dynamically allocated client_thread_args structure.
+ *
+ * @return NULL on completion.
+ *
+ * @note The function takes ownership of the argument pointer and frees it.
+ * @note The client socket is closed before the thread exits.
+ * @note Not safe to reuse the argument after passing it to this function.
+ */
 static void *client_thread_main(void *arg) {
   client_thread_args *cta = (client_thread_args *)arg;
   log_info("Accepted client fd=%d", cta->clientfd);
@@ -165,6 +272,21 @@ static void *client_thread_main(void *arg) {
   return NULL;
 }
 
+/**
+ * @brief Run the server using a thread-per-connection model.
+ *
+ * Continuously accepts incoming client connections on the given
+ * listening socket and spawns a new detached thread to handle
+ * each connection.
+ *
+ * @param serverfd Listening socket file descriptor.
+ * @param cfg Pointer to server configuration.
+ *
+ * @note Each client connection is handled in its own thread.
+ * @note Threads are detached and clean up their own resources.
+ * @note The server loop runs until the global srvr_running flag is cleared.
+ * @note The listening socket is closed before the function returns.
+ */
 void server_run_threaded(int serverfd, const server_config *cfg) {
   struct sockaddr_in clientaddr;
   socklen_t client_len = sizeof(clientaddr);
@@ -203,6 +325,19 @@ void server_run_threaded(int serverfd, const server_config *cfg) {
   close(serverfd);
 }
 
+/**
+ * @brief Set a file descriptor to non-blocking mode.
+ *
+ * Retrieves the current file status flags for the given file descriptor
+ * and adds the O_NONBLOCK flag, enabling non-blocking I/O operations.
+ *
+ * @param fd File descriptor to modify.
+ *
+ * @return 0 on success, -1 on failure.
+ *
+ * @note On failure, errno is set by fcntl().
+ * @note This function preserves existing file status flags.
+ */
 static int make_nonblocking(int fd) {
   int flags = fcntl(fd, F_GETFL, 0);
   if (flags == -1) {
@@ -214,6 +349,25 @@ static int make_nonblocking(int fd) {
   return 0;
 }
 
+/**
+ * @brief Event-driven server loop using epoll.
+ *
+ * Creates an epoll instance and registers the listening socket to
+ * receive incoming connection events. Accepts new clients in a
+ * non-blocking loop and registers them with epoll for I/O readiness
+ * notifications.
+ *
+ * Client sockets are handled sequentially once they become readable
+ * and are then closed.
+ *
+ * @param serverfd Listening socket descriptor.
+ * @param cfg Pointer to server configuration.
+ *
+ * @note Non-blocking sockets are required for correct epoll behavior.
+ * @note Uses EPOLLET (edge-triggered mode) for client sockets.
+ * @note Designed as a simplified educational event loop, not a
+ *       fully stateful production HTTP engine.
+ */
 void server_run_epoll(int serverfd, const server_config *cfg) {
   if (make_nonblocking(serverfd) == -1) {
     perror("fcntl");
@@ -306,3 +460,6 @@ void server_run_epoll(int serverfd, const server_config *cfg) {
   close(serverfd);
 }
 
+/*
+* Author : Rub3ck0r3
+*/

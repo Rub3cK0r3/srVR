@@ -15,6 +15,25 @@
 #include "router.h"
 #include "server.h"
 
+/**
+ * @brief Read available data from a socket with HTTP-aware early exit.
+ *
+ * Reads from a TCP socket in a loop until one of the following occurs:
+ * - Maximum buffer size is reached
+ * - Connection is closed
+ * - HTTP header terminator "\r\n\r\n" is found
+ *
+ * Interrupted system calls are automatically retried.
+ *
+ * @param fd Socket descriptor.
+ * @param buf Buffer to store received data.
+ * @param max_len Maximum buffer capacity.
+ *
+ * @return Total bytes read, 0 on connection close, -1 on error.
+ *
+ * @note Designed for simple HTTP request ingestion, not general-purpose
+ *       streaming or binary protocols.
+ */
 static ssize_t recv_all(int fd, char *buf, size_t max_len) {
   size_t total = 0;
   while (total < max_len) {
@@ -38,6 +57,24 @@ static ssize_t recv_all(int fd, char *buf, size_t max_len) {
   return (ssize_t)total;
 }
 
+/**
+ * @brief Send all bytes in a buffer over a socket.
+ *
+ * Repeatedly calls send() until all data in the buffer has been
+ * transmitted or an unrecoverable error occurs. Handles interrupted
+ * system calls and non-blocking socket conditions transparently.
+ *
+ * @param fd Socket file descriptor to send data through.
+ * @param buf Pointer to the data buffer to send.
+ * @param len Number of bytes to send.
+ *
+ * @return Number of bytes successfully sent on success,
+ *         -1 on error.
+ *
+ * @note This function may loop indefinitely on EAGAIN/EWOULDBLOCK
+ *       if the socket never becomes writable again.
+ * @note Intended for TCP sockets; not suitable for datagram sockets.
+ */
 static ssize_t send_all(int fd, const void *buf, size_t len) {
   size_t total = 0;
   const char *p = (const char *)buf;
@@ -68,6 +105,25 @@ static int contains_dotdot(const char *path) {
   return strstr(path, "..") != NULL;
 }
 
+/**
+ * @brief Send a simple HTTP response with optional body.
+ *
+ * Constructs and sends a minimal HTTP/1.1 response containing a status
+ * line, basic headers, and an optional response body. The connection
+ * is always closed after the response.
+ *
+ * @param fd Socket file descriptor to send the response to.
+ * @param status HTTP status code (e.g., 200, 404).
+ * @param reason Human-readable reason phrase (e.g., "OK", "Not Found").
+ * @param body Optional response body (may be NULL).
+ * @param content_type MIME type of the response body. If NULL,
+ *        defaults to "text/plain; charset=utf-8".
+ *
+ * @note The function uses Content-Length based on strlen(body).
+ * @note Response headers are written into a fixed-size buffer (512 bytes).
+ * @note If header formatting exceeds the buffer, the response is dropped.
+ * @note Uses send_all(), which may block depending on socket state.
+ */
 static void send_simple_response(int fd, int status,
                                  const char *reason,
                                  const char *body,
@@ -92,6 +148,22 @@ static void send_simple_response(int fd, int status,
   }
 }
 
+/**
+ * @brief Serve a static file from the document root.
+ *
+ * Maps the HTTP request path to a file under the configured document root,
+ * validates the path for security, and streams the file using sendfile().
+ * If the file does not exist or is invalid, an HTTP error response is sent.
+ *
+ * @param fd Client socket descriptor.
+ * @param cfg Server configuration containing document_root.
+ * @param path Requested URL path.
+ *
+ * @note "/" is mapped to "/index.html".
+ * @note Basic directory traversal protection is applied via contains_dotdot().
+ * @note Uses stat() to validate file existence and type.
+ * @note Uses sendfile() for zero-copy file transmission when possible.
+ */
 static void serve_static_file(int fd, const server_config *cfg,
                               const char *path) {
   char resolved[1024];
@@ -154,6 +226,28 @@ static void serve_static_file(int fd, const server_config *cfg,
   close(filefd);
 }
 
+/**
+ * @brief Handle a single HTTP client connection.
+ *
+ * Reads and parses an HTTP request from the client socket, logs the
+ * request, optionally processes a request body (for POST requests),
+ * and dispatches the request to the appropriate handler.
+ *
+ * Supported methods:
+ *   - GET    : Serves static files
+ *   - HEAD   : Served as static file response (same as GET here)
+ *   - POST   : Serves static file and prints request body to stdout
+ *
+ * Unsupported methods receive HTTP 405 Method Not Allowed.
+ *
+ * @param clientfd Client socket file descriptor.
+ * @param cfg Pointer to server configuration.
+ *
+ * @note This function currently uses a fixed-size stack buffer (8KB).
+ * @note Request parsing is limited to a single recv_all() call plus
+ *       optional extra body read for POST requests.
+ * @note POST body handling is demonstration-only and not production-safe.
+ */
 void handle_client_connection(int clientfd, const server_config *cfg) {
   char buffer[8192];
   ssize_t n = recv_all(clientfd, buffer, sizeof(buffer) - 1);

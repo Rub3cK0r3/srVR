@@ -53,17 +53,22 @@ static void log_with_level(const char *level, const char *fmt, va_list ap) {
     return;
   }
 
+  // We get the localtime_r right now to be able to print it in 
+  // logs
   time_t now = time(NULL);
   struct tm tm_now;
   localtime_r(&now, &tm_now);
 
+  // Creation of a temporal buffer where i store custom log data
   char tbuf[32];
   strftime(tbuf, sizeof(tbuf), "%Y-%m-%d %H:%M:%S", &tm_now);
 
+  // Now i place the log on the file
   fprintf(fp, "[%s] %s: ", tbuf, level);
   vfprintf(fp, fmt, ap);
   fputc('\n', fp);
 
+  // Finally close the file...
   fclose(fp);
 }
 
@@ -137,10 +142,13 @@ void log_error(const char *fmt, ...) {
  *       malformed input robustly.
  */
 int load_server_config(const char *path, server_config *cfg) {
+  // Load server_config from included data config file.. (include)
   cfg->port = SRVR_DEFAULT_PORT;
   strncpy(cfg->document_root, SRVR_DEFAULT_ROOT, sizeof(cfg->document_root));
   cfg->document_root[sizeof(cfg->document_root) - 1] = '\0';
-  cfg->use_epoll = 0;
+  cfg->use_epoll = 0; // For now we are going to be testing the server_run_threaded version
+  //
+  //
 
   FILE *fp = fopen(path, "r");
   if (!fp) {

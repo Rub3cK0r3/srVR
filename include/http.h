@@ -21,6 +21,20 @@ typedef struct http_header {
   char value[256];
 } http_header;
 
+/*
+* Example HTTP Header ..:
+* GET / HTTP/2
+* Host: example.com
+* User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:97.0) Gecko/20100101 Firefox/103.0
+* Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,_/_;q=0.8
+* Accept-Language: en-US,en;q=0.5
+* Accept-Encoding: gzip, deflate, br
+* Connection: keep-alive
+* Pragma: no-cache
+* Cache-Control: no-cache
+*/
+
+
 typedef struct http_request {
   char method[HTTP_MAX_METHOD_LEN];
   char path[HTTP_MAX_PATH_LEN];
@@ -32,6 +46,19 @@ typedef struct http_request {
   char *body;
   size_t body_length;
 } http_request;
+
+/*
+* Example HTTP Response ..:
+* HTTP/1.1 200 OK 
+* Date: Mon, 27 Jul 2009 12:28:53 GMT 
+* Server: Apache/2.2.14 (Win32) 
+* Last-Modified: Wed, 22 Jul 2009 19:15:56 GMT 
+* Content-Length: 88 
+* Content-Type: text/html 
+* Connection: Closed
+*/
+
+// 
 
 /*
  * Parse a raw HTTP request buffer into an http_request structure.

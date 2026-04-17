@@ -90,6 +90,7 @@ int http_parse_request(char *buffer, size_t length, http_request *req) {
 
   char *pos = buffer;
   char *end = buffer + length;
+  // Remember, '\r\n' is 2 characters long (2 bytes)
   char *line_end = strstr(pos, "\r\n");
   if (!line_end) {
     return -1;

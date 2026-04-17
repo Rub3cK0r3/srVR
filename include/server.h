@@ -31,6 +31,12 @@ typedef struct server_config {
   int use_epoll; /* non‑zero when the optional epoll loop is enabled */
 } server_config;
 
+/* Example server config file - server.conf ..: 
+* port=8080 
+* document_root=./www
+* use_epoll=0
+*/
+
 /*
  * Initialize configuration with sane defaults, then optionally
  * override them from a simple key=value configuration file.

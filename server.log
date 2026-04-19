@@ -4,3 +4,9 @@
 [2026-03-13 16:03:21] INFO: Accepted client fd=5
 [2026-03-13 16:03:21] INFO: Request: GET /favicon.ico HTTP/1.1
 git test
+[2026-04-19 16:42:48] ERROR: Failed to create listening socket
+[2026-04-19 16:43:00] INFO: Listening on port 8080, root=./www
+[2026-04-19 16:43:02] INFO: Accepted client fd=4
+[2026-04-19 16:43:02] INFO: Request: GET / HTTP/1.1
+[2026-04-19 16:43:20] INFO: Accepted client fd=5
+[2026-04-19 16:43:20] INFO: Request: GET / HTTP/1.1

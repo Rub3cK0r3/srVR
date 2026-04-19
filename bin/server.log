@@ -1,0 +1,28 @@
+[2026-04-19 16:39:51] INFO: Listening on port 8080, root=./www
+[2026-04-19 16:40:01] INFO: Accepted client fd=4
+[2026-04-19 16:40:01] INFO: Request: GET / HTTP/1.1
+[2026-04-19 16:40:01] INFO: Accepted client fd=5
+[2026-04-19 16:40:01] INFO: Request: GET /favicon.ico HTTP/1.1
+[2026-04-19 16:40:18] INFO: Accepted client fd=4
+[2026-04-19 16:40:18] INFO: Request: GET / HTTP/1.1
+[2026-04-19 16:40:19] INFO: Accepted client fd=5
+[2026-04-19 16:40:19] INFO: Request: GET / HTTP/1.1
+[2026-04-19 16:40:34] INFO: Accepted client fd=4
+[2026-04-19 16:40:34] INFO: Request: GET / HTTP/1.1
+[2026-04-19 16:40:35] INFO: Accepted client fd=5
+[2026-04-19 16:40:35] INFO: Request: GET / HTTP/1.1
+[2026-04-19 16:40:35] INFO: Accepted client fd=4
+[2026-04-19 16:40:35] INFO: Request: GET / HTTP/1.1
+[2026-04-19 16:40:35] INFO: Accepted client fd=5
+[2026-04-19 16:40:35] INFO: Request: GET / HTTP/1.1
+[2026-04-19 16:40:35] INFO: Accepted client fd=4
+[2026-04-19 16:40:35] INFO: Request: GET / HTTP/1.1
+[2026-04-19 16:41:01] INFO: Listening on port 8080, root=./www
+[2026-04-19 16:41:04] INFO: Accepted client fd=4
+[2026-04-19 16:41:04] INFO: Request: GET / HTTP/1.1
+[2026-04-19 16:41:35] INFO: Listening on port 8080, root=./www
+[2026-04-19 16:41:37] INFO: Accepted client fd=4
+[2026-04-19 16:41:37] INFO: Request: GET / HTTP/1.1
+[2026-04-19 16:42:16] INFO: Listening on port 8080, root=./www
+[2026-04-19 16:42:20] INFO: Accepted client fd=4
+[2026-04-19 16:42:20] INFO: Request: GET / HTTP/1.1

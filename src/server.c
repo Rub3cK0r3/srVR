@@ -1,3 +1,10 @@
+/*
+* server.c
+*
+* Copyright (c) 2026 Rub3ck0r3
+* Licensed under the MIT License.
+*/
+
 #define _GNU_SOURCE
 
 #include <arpa/inet.h>
@@ -21,32 +28,32 @@
 #include "server.h"
 
 /**
- * @brief Global flag indicating whether the server should continue running.
- *
- * This variable is typically modified by signal handlers (e.g., SIGINT)
- * to gracefully stop the server loop.
- *
- * @note Declared as volatile sig_atomic_t to ensure safe access in
- *       asynchronous signal contexts.
- */
+* @brief Global flag indicating whether the server should continue running.
+*
+* This variable is typically modified by signal handlers (e.g., SIGINT)
+* to gracefully stop the server loop.
+*
+* @note Declared as volatile sig_atomic_t to ensure safe access in
+*       asynchronous signal contexts.
+*/
 extern volatile sig_atomic_t srvr_running;
 
 static const char *LOG_PATH = "server.log";
 
 /**
- * @brief Write a formatted log message with a severity level.
- *
- * Opens the log file, prepends a timestamp and severity level, and writes
- * the formatted message. Each log entry is written on a new line.
- *
- * @param level String representing the log level (e.g., "INFO", "ERROR").
- * @param fmt printf-style format string.
- * @param ap Variable argument list corresponding to the format string.
- *
- * @note The log file is opened and closed on each call.
- * @note If the file cannot be opened, the function silently returns.
- * @note Not safe for use in signal handlers due to use of stdio and time functions.
- */
+* @brief Write a formatted log message with a severity level.
+*
+* Opens the log file, prepends a timestamp and severity level, and writes
+* the formatted message. Each log entry is written on a new line.
+*
+* @param level String representing the log level (e.g., "INFO", "ERROR").
+* @param fmt printf-style format string.
+* @param ap Variable argument list corresponding to the format string.
+*
+* @note The log file is opened and closed on each call.
+* @note If the file cannot be opened, the function silently returns.
+* @note Not safe for use in signal handlers due to use of stdio and time functions.
+*/
 static void log_with_level(const char *level, const char *fmt, va_list ap) {
   FILE *fp = fopen(LOG_PATH, "a");
   if (!fp) {
@@ -73,13 +80,14 @@ static void log_with_level(const char *level, const char *fmt, va_list ap) {
 }
 
 /**
- * @brief Log an informational message.
- *
- * Formats and writes a message with the "INFO" level to the log file.
- *
- * @param fmt printf-style format string.
- * @param ... Additional arguments corresponding to the format string.
- */
+* @brief Log an informational message.
+*
+* Formats and writes a message with the "INFO" level to the log file.
+*
+* @param fmt printf-style format string.
+* @param ... Additional arguments corresponding to the format string.
+*/
+
 void log_info(const char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
@@ -88,13 +96,13 @@ void log_info(const char *fmt, ...) {
 }
 
 /**
- * @brief Log a warning message.
- *
- * Formats and writes a message with the "WARN" level to the log file.
- *
- * @param fmt printf-style format string.
- * @param ... Additional arguments corresponding to the format string.
- */
+* @brief Log a warning message.
+*
+* Formats and writes a message with the "WARN" level to the log file.
+*
+* @param fmt printf-style format string.
+* @param ... Additional arguments corresponding to the format string.
+*/
 void log_warn(const char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
@@ -103,13 +111,13 @@ void log_warn(const char *fmt, ...) {
 }
 
 /**
- * @brief Log an error message.
- *
- * Formats and writes a message with the "ERROR" level to the log file.
- *
- * @param fmt printf-style format string.
- * @param ... Additional arguments corresponding to the format string.
- */
+* @brief Log an error message.
+*
+* Formats and writes a message with the "ERROR" level to the log file.
+*
+* @param fmt printf-style format string.
+* @param ... Additional arguments corresponding to the format string.
+*/
 void log_error(const char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
@@ -118,29 +126,29 @@ void log_error(const char *fmt, ...) {
 }
 
 /**
- * @brief Load server configuration from a file.
- *
- * Reads a configuration file containing simple key=value pairs and
- * populates the provided server_config structure. If the file cannot
- * be opened, default values are used and the function still succeeds.
- *
- * Supported configuration keys:
- *   - port        : Server listening port (integer)
- *   - root        : Document root directory (string)
- *   - use_epoll   : Enable epoll (0 or non-zero)
- *
- * Lines beginning with '#' or blank lines are ignored.
- *
- * @param path Path to the configuration file.
- * @param cfg Pointer to a server_config structure to populate.
- *
- * @return 0 on success (including when file is missing).
- *
- * @note The configuration structure is initialized with default values
- *       before parsing the file.
- * @note Parsing is simple and does not handle whitespace trimming or
- *       malformed input robustly.
- */
+* @brief Load server configuration from a file.
+*
+* Reads a configuration file containing simple key=value pairs and
+* populates the provided server_config structure. If the file cannot
+* be opened, default values are used and the function still succeeds.
+*
+* Supported configuration keys:
+*   - port        : Server listening port (integer)
+*   - root        : Document root directory (string)
+*   - use_epoll   : Enable epoll (0 or non-zero)
+*
+* Lines beginning with '#' or blank lines are ignored.
+*
+* @param path Path to the configuration file.
+* @param cfg Pointer to a server_config structure to populate.
+*
+* @return 0 on success (including when file is missing).
+*
+* @note The configuration structure is initialized with default values
+*       before parsing the file.
+* @note Parsing is simple and does not handle whitespace trimming or
+*       malformed input robustly.
+*/
 int load_server_config(const char *path, server_config *cfg) {
   // Load server_config from included data config file.. (include)
   cfg->port = SRVR_DEFAULT_PORT;
@@ -191,20 +199,20 @@ int load_server_config(const char *path, server_config *cfg) {
 }
 
 /**
- * @brief Set up a listening TCP socket for the server.
- *
- * Creates an IPv4 TCP socket, enables address reuse, binds it to
- * INADDR_ANY and the configured port, and begins listening for
- * incoming connections.
- *
- * @param cfg Pointer to server configuration.
- *
- * @return Socket file descriptor on success, -1 on error.
- *
- * @note On failure, an error message is printed using perror().
- * @note The socket listens on all available network interfaces.
- * @note The backlog is set to SOMAXCONN for maximum queue capacity.
- */
+* @brief Set up a listening TCP socket for the server.
+*
+* Creates an IPv4 TCP socket, enables address reuse, binds it to
+* INADDR_ANY and the configured port, and begins listening for
+* incoming connections.
+*
+* @param cfg Pointer to server configuration.
+*
+* @return Socket file descriptor on success, -1 on error.
+*
+* @note On failure, an error message is printed using perror().
+* @note The socket listens on all available network interfaces.
+* @note The backlog is set to SOMAXCONN for maximum queue capacity.
+*/
 int server_listen(const server_config *cfg) {
   int serverfd = socket(AF_INET, SOCK_STREAM, 0);
   if (serverfd == -1) {
@@ -213,6 +221,14 @@ int server_listen(const server_config *cfg) {
   }
 
   int opt = 1;
+  // The setsockopt() function provides an application program with the
+  // means to control socket behavior. An application program can use
+  // setsockopt() to allocate buffer space, control timeouts, or permit
+  // socket data broadcasts. The <sys/socket.h> header defines the
+  // socket-level options available to setsockopt().
+  //
+  // Options may exist at multiple protocol levels. The SO_ options are
+  // always present at the uppermost socket level.
   setsockopt(serverfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
   struct sockaddr_in addr;
@@ -246,59 +262,75 @@ int server_listen(const server_config *cfg) {
 }
 
 /**
- * @brief Arguments passed to a client handler thread.
- *
- * Contains the client socket file descriptor and a copy of the
- * server configuration needed to handle the connection.
- */
+* @brief Arguments passed to a client handler thread.
+*
+* Contains the client socket file descriptor and a copy of the
+* server configuration needed to handle the connection.
+*/
 typedef struct client_thread_args {
   int clientfd;
   server_config cfg;
 } client_thread_args;
 
 /**
- * @brief Entry point for handling a client connection in a separate thread.
- *
- * This function is intended to be used as the start routine for a thread.
- * It processes a single client connection, logs the event, invokes the
- * request handler, and performs cleanup.
- *
- * @param arg Pointer to a dynamically allocated client_thread_args structure.
- *
- * @return NULL on completion.
- *
- * @note The function takes ownership of the argument pointer and frees it.
- * @note The client socket is closed before the thread exits.
- * @note Not safe to reuse the argument after passing it to this function.
- */
+* @brief Entry point for handling a client connection in a separate thread.
+*
+* This function is intended to be used as the start routine for a thread.
+* It processes a single client connection, logs the event, invokes the
+* request handler, and performs cleanup.
+*
+* @param arg Pointer to a dynamically allocated client_thread_args structure.
+*
+* @return NULL on completion.
+*
+* @note The function takes ownership of the argument pointer and frees it.
+* @note The client socket is closed before the thread exits.
+* @note Not safe to reuse the argument after passing it to this function.
+*/
 static void *client_thread_main(void *arg) {
   client_thread_args *cta = (client_thread_args *)arg;
   log_info("Accepted client fd=%d", cta->clientfd);
   handle_client_connection(cta->clientfd, &cta->cfg);
   close(cta->clientfd);
+  // REMEMBER:
+  // The free() function shall cause the space pointed to by ptr to be
+  // deallocated; that is, made available for further allocation. If
+  // ptr is a null pointer, no action shall occur. Otherwise, if the
+  // argument does not match a pointer earlier returned by a function
+  // in POSIX.1‐2008 that allocates memory as if by malloc(), or if the
+  // space has been deallocated by a call to free() or realloc(), the
+  // behavior is undefined.
+  //
+  // Any use of a pointer that refers to freed space results in
+  // undefined behavior.
   free(cta);
   return NULL;
 }
 
 /**
- * @brief Run the server using a thread-per-connection model.
- *
- * Continuously accepts incoming client connections on the given
- * listening socket and spawns a new detached thread to handle
- * each connection.
- *
- * @param serverfd Listening socket file descriptor.
- * @param cfg Pointer to server configuration.
- *
- * @note Each client connection is handled in its own thread.
- * @note Threads are detached and clean up their own resources.
- * @note The server loop runs until the global srvr_running flag is cleared.
- * @note The listening socket is closed before the function returns.
- */
+* @brief Run the server using a thread-per-connection model.
+*
+* Continuously accepts incoming client connections on the given
+* listening socket and spawns a new detached thread to handle
+* each connection.
+*
+* @param serverfd Listening socket file descriptor.
+* @param cfg Pointer to server configuration.
+*
+* @note Each client connection is handled in its own thread.
+* @note Threads are detached and clean up their own resources.
+* @note The server loop runs until the global srvr_running flag is cleared.
+* @note The listening socket is closed before the function returns.
+*/
 void server_run_threaded(int serverfd, const server_config *cfg) {
   struct sockaddr_in clientaddr;
   socklen_t client_len = sizeof(clientaddr);
 
+  // REMEMBER (srvr_running):
+  // This directs the compiler not to do certain common optimizations 
+  // on use of the variable lock. All the reads and writes for a volatile 
+  // variable or field are really done, and done in the order specified by 
+  // the source code. 
   while (srvr_running) {
     int clientfd =
         accept(serverfd, (struct sockaddr *)&clientaddr, &client_len);
@@ -319,6 +351,10 @@ void server_run_threaded(int serverfd, const server_config *cfg) {
     cta->clientfd = clientfd;
     cta->cfg = *cfg;
 
+    // The pthread_create() function starts a new thread in the calling
+    // process.The new thread starts execution by invoking
+    // start_routine(); arg is passed as the sole argument of
+    // start_routine().
     pthread_t tid;
     if (pthread_create(&tid, NULL, client_thread_main, cta) != 0) {
       log_error("Failed to create client thread");
@@ -326,7 +362,8 @@ void server_run_threaded(int serverfd, const server_config *cfg) {
       free(cta);
       continue;
     }
-
+    // The pthread_detach() function marks the thread identified by
+    // thread as detached.  When a detached thread terminates
     pthread_detach(tid);
   }
 
@@ -334,18 +371,18 @@ void server_run_threaded(int serverfd, const server_config *cfg) {
 }
 
 /**
- * @brief Set a file descriptor to non-blocking mode.
- *
- * Retrieves the current file status flags for the given file descriptor
- * and adds the O_NONBLOCK flag, enabling non-blocking I/O operations.
- *
- * @param fd File descriptor to modify.
- *
- * @return 0 on success, -1 on failure.
- *
- * @note On failure, errno is set by fcntl().
- * @note This function preserves existing file status flags.
- */
+* @brief Set a file descriptor to non-blocking mode.
+*
+* Retrieves the current file status flags for the given file descriptor
+* and adds the O_NONBLOCK flag, enabling non-blocking I/O operations.
+*
+* @param fd File descriptor to modify.
+*
+* @return 0 on success, -1 on failure.
+*
+* @note On failure, errno is set by fcntl().
+* @note This function preserves existing file status flags.
+*/
 static int make_nonblocking(int fd) {
   int flags = fcntl(fd, F_GETFL, 0);
   if (flags == -1) {
@@ -358,24 +395,31 @@ static int make_nonblocking(int fd) {
 }
 
 /**
- * @brief Event-driven server loop using epoll.
- *
- * Creates an epoll instance and registers the listening socket to
- * receive incoming connection events. Accepts new clients in a
- * non-blocking loop and registers them with epoll for I/O readiness
- * notifications.
- *
- * Client sockets are handled sequentially once they become readable
- * and are then closed.
- *
- * @param serverfd Listening socket descriptor.
- * @param cfg Pointer to server configuration.
- *
- * @note Non-blocking sockets are required for correct epoll behavior.
- * @note Uses EPOLLET (edge-triggered mode) for client sockets.
- * @note Designed as a simplified educational event loop, not a
- *       fully stateful production HTTP engine.
- */
+* @brief Event-driven server loop using epoll.
+*
+* Creates an epoll instance and registers the listening socket to
+* receive incoming connection events. Accepts new clients in a
+* non-blocking loop and registers them with epoll for I/O readiness
+* notifications.
+*
+* Remember: An event can be defined as "a significant change in state". 
+* For example, when a consumer purchases a car, the car's state changes 
+* from "for sale" to "sold". 
+* A car dealer's system architecture may treat this state change as an 
+* event whose occurrence can be made known to other applications within 
+* the architecture.
+*
+* Client sockets are handled sequentially once they become readable
+* and are then closed.
+*
+* @param serverfd Listening socket descriptor.
+* @param cfg Pointer to server configuration.
+*
+* @note Non-blocking sockets are required for correct epoll behavior.
+* @note Uses EPOLLET (edge-triggered mode) for client sockets.
+* @note Designed as a simplified educational event loop, not a
+*       fully stateful production HTTP engine.
+*/
 void server_run_epoll(int serverfd, const server_config *cfg) {
   if (make_nonblocking(serverfd) == -1) {
     perror("fcntl");
@@ -389,10 +433,31 @@ void server_run_epoll(int serverfd, const server_config *cfg) {
     close(serverfd);
     return;
   }
-
+  // The epoll_event structure specifies data that the kernel should
+  // save and return when the corresponding file descriptor becomes
+  // ready.
+  // synopsis from man7.org:
+  // #include <sys/epoll.h>
+  //
+  //  struct epoll_event {
+  //     uint32_t      events;  /* Epoll events */
+  //     epoll_data_t  data;    /* User data variable */
+  //  };
+  //
+  //  union epoll_data {
+  //     void     *ptr;
+  //     int       fd;
+  //     uint32_t  u32;
+  //     uint64_t  u64;
+  //  };
+  //
+  //  typedef union epoll_data  epoll_data_t;
+  
   struct epoll_event ev;
+  
   ev.events = EPOLLIN;
   ev.data.fd = serverfd;
+
   if (epoll_ctl(epfd, EPOLL_CTL_ADD, serverfd, &ev) == -1) {
     perror("epoll_ctl");
     close(epfd);
@@ -405,7 +470,7 @@ void server_run_epoll(int serverfd, const server_config *cfg) {
    * or recv(); instead we ask the kernel to tell us when sockets
    * become readable or writable. epoll_wait() returns a batch of
    * ready file descriptors which we then service in a loop.
-   */
+  */
   const int MAX_EVENTS = 64;
   struct epoll_event events[MAX_EVENTS];
 
@@ -441,8 +506,26 @@ void server_run_epoll(int serverfd, const server_config *cfg) {
           }
 
           struct epoll_event cev;
+
+          /////////////
+          // EPOLLIN //
+          /////////////
+          // The associated file is available for read(2) operations. 
+
+          /////////////
+          // EPOLLET //
+          /////////////
+          // Requests edge-triggered notification for the associated
+          // file descriptor.  The default behavior for epoll is level-
+          // triggered.  See epoll(7) for more detailed information
+          // about edge-triggered and level-triggered notification.
+
           cev.events = EPOLLIN | EPOLLET;
           cev.data.fd = clientfd;
+          // This system call is used to add, modify, or remove entries in the
+          // interest list of the epoll(7) instance referred to by the file
+          // descriptor epfd.  It requests that the operation op be performed
+          // for the target file descriptor, fd.
           if (epoll_ctl(epfd, EPOLL_CTL_ADD, clientfd, &cev) == -1) {
             perror("epoll_ctl ADD client");
             close(clientfd);
@@ -452,6 +535,7 @@ void server_run_epoll(int serverfd, const server_config *cfg) {
       } else {
         int clientfd = events[i].data.fd;
         /*
+         * TODO:
          * For simplicity we handle each ready client in a
          * blocking fashion here and then close it. In a more
          * advanced design we would keep per‑connection state
@@ -467,7 +551,3 @@ void server_run_epoll(int serverfd, const server_config *cfg) {
   close(epfd);
   close(serverfd);
 }
-
-/*
-* Author : Rub3ck0r3
-*/

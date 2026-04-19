@@ -1,3 +1,10 @@
+/*
+* main.c
+*
+* Copyright (c) 2026 Rub3ck0r3
+* Licensed under the MIT License.
+*/
+
 #define _POSIX_C_SOURCE 200809L
 
 #include <signal.h>
@@ -8,10 +15,10 @@
 #include "server.h"
 
 /*
- * Global running flag used for graceful shutdown.
- * The SIGINT handler simply flips this flag; the main
- * accept loop checks it and exits cleanly.
- */
+* Global running flag used for graceful shutdown.
+* The SIGINT handler simply flips this flag; the main
+* accept loop checks it and exits cleanly.
+*/
 volatile sig_atomic_t srvr_running = 1;
 
 static void handle_sigint(int sig) {
@@ -60,4 +67,3 @@ int main(void) {
 
   return EXIT_SUCCESS;
 }
-

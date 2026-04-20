@@ -394,7 +394,7 @@ static int make_nonblocking(int fd) {
   return 0;
 }
 
-/**
+/** TODO: This implementation is demo yet.
 * @brief Event-driven server loop using epoll.
 *
 * Creates an epoll instance and registers the listening socket to
@@ -421,133 +421,128 @@ static int make_nonblocking(int fd) {
 *       fully stateful production HTTP engine.
 */
 void server_run_epoll(int serverfd, const server_config *cfg) {
-  if (make_nonblocking(serverfd) == -1) {
-    perror("fcntl");
-    close(serverfd);
-    return;
-  }
+    if (make_nonblocking(serverfd) == -1) {
+        perror("fcntl");
+        close(serverfd);
+        return;
+    }
 
-  int epfd = epoll_create1(0);
-  if (epfd == -1) {
-    perror("epoll_create1");
-    close(serverfd);
-    return;
-  }
-  // The epoll_event structure specifies data that the kernel should
-  // save and return when the corresponding file descriptor becomes
-  // ready.
-  // synopsis from man7.org:
-  // #include <sys/epoll.h>
-  //
-  //  struct epoll_event {
-  //     uint32_t      events;  /* Epoll events */
-  //     epoll_data_t  data;    /* User data variable */
-  //  };
-  //
-  //  union epoll_data {
-  //     void     *ptr;
-  //     int       fd;
-  //     uint32_t  u32;
-  //     uint64_t  u64;
-  //  };
-  //
-  //  typedef union epoll_data  epoll_data_t;
-  
-  struct epoll_event ev;
-  
-  ev.events = EPOLLIN;
-  ev.data.fd = serverfd;
+    int epfd = epoll_create1(0);
+    if (epfd == -1) {
+        perror("epoll_create1");
+        close(serverfd);
+        return;
+    }
 
-  if (epoll_ctl(epfd, EPOLL_CTL_ADD, serverfd, &ev) == -1) {
-    perror("epoll_ctl");
+    struct epoll_event ev;
+    ev.events = EPOLLIN;
+    ev.data.fd = serverfd;
+
+    if (epoll_ctl(epfd, EPOLL_CTL_ADD, serverfd, &ev) == -1) {
+        perror("epoll_ctl");
+        close(epfd);
+        close(serverfd);
+        return;
+    }
+
+    const int MAX_EVENTS = 64;
+    struct epoll_event events[MAX_EVENTS];
+
+    while (srvr_running) {
+        int n = epoll_wait(epfd, events, MAX_EVENTS, 1000);
+        if (n == -1) {
+            if (errno == EINTR) {
+                continue;
+            }
+            perror("epoll_wait");
+            break;
+        }
+
+        for (int i = 0; i < n; ++i) {
+
+            // 🔹 NEW CONNECTIONS
+            if (events[i].data.fd == serverfd) {
+                while (1) {
+                    struct sockaddr_in clientaddr;
+                    socklen_t len = sizeof(clientaddr);
+
+                    int clientfd = accept(serverfd, (struct sockaddr *)&clientaddr, &len);
+                    if (clientfd == -1) {
+                        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                            break;
+                        }
+                        perror("accept");
+                        break;
+                    }
+
+                    if (make_nonblocking(clientfd) == -1) {
+                        close(clientfd);
+                        continue;
+                    }
+
+                    epoll_client *client = malloc(sizeof(epoll_client));
+                    if (!client) {
+                        perror("malloc");
+                        close(clientfd);
+                        continue;
+                    }
+
+                    client->clientfd = clientfd;
+                    client->buffer_len = 0;
+
+                    struct epoll_event cev;
+                    cev.events = EPOLLIN | EPOLLET;
+                    cev.data.ptr = client;
+
+                    if (epoll_ctl(epfd, EPOLL_CTL_ADD, clientfd, &cev) == -1) {
+                        perror("epoll_ctl ADD client");
+                        close(clientfd);
+                        free(client);
+                        continue;
+                    }
+                }
+            }
+
+            // 🔹 EXISTING CLIENTS
+            else {
+                epoll_client *client = (epoll_client *)events[i].data.ptr;
+                int clientfd = client->clientfd;
+
+                // handle disconnects/errors
+                if (events[i].events & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) {
+                    close(clientfd);
+                    free(client);
+                    continue;
+                }
+
+                // handle readable data
+                if (events[i].events & EPOLLIN) {
+                    while (1) {
+                        ssize_t bytes = read(clientfd, client->buff, sizeof(client->buff));
+
+                        if (bytes == -1) {
+                            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                                break;
+                            }
+                            perror("read");
+                            close(clientfd);
+                            free(client);
+                            break;
+                        } else if (bytes == 0) {
+                            close(clientfd);
+                            free(client);
+                            break;
+                        } else {
+                            client->buffer_len = bytes;
+                            printf("Received: %.*s\n", (int)bytes, client->buff);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     close(epfd);
     close(serverfd);
-    return;
-  }
-
-  /*
-   * In an event‑driven architecture we do not block in accept()
-   * or recv(); instead we ask the kernel to tell us when sockets
-   * become readable or writable. epoll_wait() returns a batch of
-   * ready file descriptors which we then service in a loop.
-  */
-  const int MAX_EVENTS = 64;
-  struct epoll_event events[MAX_EVENTS];
-
-  while (srvr_running) {
-    int n = epoll_wait(epfd, events, MAX_EVENTS, 1000);
-    if (n == -1) {
-      if (errno == EINTR) {
-        continue;
-      }
-      perror("epoll_wait");
-      break;
-    }
-
-    for (int i = 0; i < n; ++i) {
-      if (events[i].data.fd == serverfd) {
-        /* New incoming connections. */
-        while (1) {
-          struct sockaddr_in clientaddr;
-          socklen_t len = sizeof(clientaddr);
-          int clientfd =
-              accept(serverfd, (struct sockaddr *)&clientaddr, &len);
-          if (clientfd == -1) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-              break;
-            }
-            perror("accept");
-            break;
-          }
-
-          if (make_nonblocking(clientfd) == -1) {
-            close(clientfd);
-            continue;
-          }
-
-          struct epoll_event cev;
-
-          /////////////
-          // EPOLLIN //
-          /////////////
-          // The associated file is available for read(2) operations. 
-
-          /////////////
-          // EPOLLET //
-          /////////////
-          // Requests edge-triggered notification for the associated
-          // file descriptor.  The default behavior for epoll is level-
-          // triggered.  See epoll(7) for more detailed information
-          // about edge-triggered and level-triggered notification.
-
-          cev.events = EPOLLIN | EPOLLET;
-          cev.data.fd = clientfd;
-          // This system call is used to add, modify, or remove entries in the
-          // interest list of the epoll(7) instance referred to by the file
-          // descriptor epfd.  It requests that the operation op be performed
-          // for the target file descriptor, fd.
-          if (epoll_ctl(epfd, EPOLL_CTL_ADD, clientfd, &cev) == -1) {
-            perror("epoll_ctl ADD client");
-            close(clientfd);
-            continue;
-          }
-        }
-      } else {
-        int clientfd = events[i].data.fd;
-        /*
-         * TODO:
-         * For simplicity we handle each ready client in a
-         * blocking fashion here and then close it. In a more
-         * advanced design we would keep per‑connection state
-         * and perform incremental non‑blocking I/O.
-         */
-        handle_client_connection(clientfd, cfg);
-        epoll_ctl(epfd, EPOLL_CTL_DEL, clientfd, NULL);
-        close(clientfd);
-      }
-    }
-  }
-
-  close(epfd);
-  close(serverfd);
 }
+

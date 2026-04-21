@@ -44,6 +44,11 @@
 static ssize_t recv_all(int fd, char *buf, size_t max_len) {
   size_t total = 0;
   while (total < max_len) {
+    // The recv(), recvfrom(), and recvmsg() calls are used to receive
+    // messages from a socket.  They may be used to receive data on both
+    // connectionless and connection-oriented sockets.  This page first
+    // describes common features of all three system calls, and then
+    // describes the differences between the calls.
     ssize_t n = recv(fd, buf + total, max_len - total, 0);
     if (n == -1) {
       if (errno == EINTR) {
@@ -86,6 +91,14 @@ static ssize_t send_all(int fd, const void *buf, size_t len) {
   size_t total = 0;
   const char *p = (const char *)buf;
   while (total < len) {
+    // The system calls send(), sendto(), and sendmsg() are used to
+    // transmit a message to another socket.
+    //
+    // The send() call may be used only when the socket is in a connected
+    // state (so that the intended recipient is known).  The only
+    // difference between send() and write(2) is the presence of flags.
+    // With a zero flags argument, send() is equivalent to write(2).
+    // Also, the following call
     ssize_t n = send(fd, p + total, len - total, 0);
     if (n == -1) {
       if (errno == EINTR) {
@@ -137,6 +150,10 @@ static void send_simple_response(int fd, int status,
                                  const char *content_type) {
   char header[512];
   size_t body_len = body ? strlen(body) : 0;
+  // The sprintf() function shall place output
+  // followed by the null byte, '\0', in consecutive bytes starting at
+  // *s; it is the user's responsibility to ensure that enough space is
+  // available.
   int n = snprintf(header, sizeof(header),
                    "HTTP/1.1 %d %s\r\n"
                    "Content-Type: %s\r\n"
@@ -149,6 +166,7 @@ static void send_simple_response(int fd, int status,
   if (n < 0 || (size_t)n >= sizeof(header)) {
     return;
   }
+  // Send all the bytes in this blocking fashion..
   send_all(fd, header, (size_t)n);
   if (body_len > 0) {
     send_all(fd, body, body_len);
@@ -225,6 +243,10 @@ static void serve_static_file(int fd, const server_config *cfg,
 
   off_t offset = 0;
   ssize_t sent;
+  // sendfile() copies data between one file descriptor and another.
+  // Because this copying is done within the kernel, sendfile() is more
+  // efficient than the combination of read(2) and write(2), which
+  // would require transferring data to and from user space.
   while (offset < st.st_size &&
          (sent = sendfile(fd, filefd, &offset, (size_t)(st.st_size - offset))) >
              0) {
@@ -275,6 +297,9 @@ void handle_client_connection(int clientfd, const server_config *cfg) {
 
   const char *cl = http_get_header(&req, "Content-Length");
   if (cl && strcmp(req.method, "POST") == 0) {
+    // The strtol() function converts the initial part of the string in
+    // nptr to a long integer value according to the given base, which
+    // must be between 2 and 36 inclusive, or be the special value 0.
     long len = strtol(cl, NULL, 10);
     if (len > 0 && (size_t)len > req.body_length &&
         (size_t)len < sizeof(buffer)) {
@@ -293,6 +318,8 @@ void handle_client_connection(int clientfd, const server_config *cfg) {
      */
     if (req.body && req.body_length > 0) {
       fwrite(req.body, 1, req.body_length, stdout);
+      // REMEMBER:
+      // putc — put a byte on a stream
       fputc('\n', stdout);
     }
   }

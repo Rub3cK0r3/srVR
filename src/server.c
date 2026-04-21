@@ -26,6 +26,7 @@
 
 #include "router.h"
 #include "server.h"
+#include "ev.h"
 
 /**
 * @brief Global flag indicating whether the server should continue running.
@@ -395,6 +396,7 @@ static int make_nonblocking(int fd) {
 }
 
 /** TODO: This implementation is demo yet.
+* TODO: implementation using the wrapper.
 * @brief Event-driven server loop using epoll.
 *
 * Creates an epoll instance and registers the listening socket to
@@ -413,7 +415,7 @@ static int make_nonblocking(int fd) {
 * and are then closed.
 *
 * @param serverfd Listening socket descriptor.
-* @param cfg Pointer to server configuration.
+* @param cfg Pointer to server configuration. (optional)
 *
 * @note Non-blocking sockets are required for correct epoll behavior.
 * @note Uses EPOLLET (edge-triggered mode) for client sockets.
@@ -460,7 +462,7 @@ void server_run_epoll(int serverfd, const server_config *cfg) {
 
         for (int i = 0; i < n; ++i) {
 
-            // 🔹 NEW CONNECTIONS
+            // NEW CONNECTIONS
             if (events[i].data.fd == serverfd) {
                 while (1) {
                     struct sockaddr_in clientaddr;
@@ -503,7 +505,7 @@ void server_run_epoll(int serverfd, const server_config *cfg) {
                 }
             }
 
-            // 🔹 EXISTING CLIENTS
+            // EXISTING CLIENTS
             else {
                 epoll_client *client = (epoll_client *)events[i].data.ptr;
                 int clientfd = client->clientfd;
@@ -518,23 +520,36 @@ void server_run_epoll(int serverfd, const server_config *cfg) {
                 // handle readable data
                 if (events[i].events & EPOLLIN) {
                     while (1) {
-                        ssize_t bytes = read(clientfd, client->buff, sizeof(client->buff));
+                        ssize_t bytes = read(clientfd, 
+                                client->buff + client->buffer_len, 
+                                sizeof(client->buff) - client->buffer_len
+                        );
 
                         if (bytes == -1) {
+
                             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                                 break;
                             }
+
                             perror("read");
                             close(clientfd);
                             free(client);
                             break;
+
                         } else if (bytes == 0) {
+
                             close(clientfd);
                             free(client);
                             break;
+
                         } else {
+
+                            // TODO: Handling active clients
                             client->buffer_len = bytes;
-                            printf("Received: %.*s\n", (int)bytes, client->buff);
+                            //printf("Received: %.*s\n", (int)bytes, client->buff);
+                            // TODO:
+                            //READ → PARSE → ROUTE → WRITE → CLOSE/KEEPALIVE
+
                         }
                     }
                 }

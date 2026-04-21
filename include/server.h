@@ -37,13 +37,6 @@ typedef struct server_config {
 * use_epoll=0
 */
 
-typedef struct epoll_client {
-    int clientfd; // client socket file descriptor
-    char buff[4096]; // 4KB client buffer for read/write operations
-    int buffer_len;
-    int state; // example : READING is 0 and WRITING is 1
-} epoll_client ;
-
 //
 //
 

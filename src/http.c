@@ -87,6 +87,8 @@ static int ci_equal(const char *a, const char *b) {
 *       HTTP_MAX_HEADERS is reached.
 */
 int http_parse_request(char *buffer, size_t length, http_request *req) {
+  // The memset() function fills the first n bytes of the memory area
+  // pointed to by s with the constant byte c.
   memset(req, 0, sizeof(*req));
 
   /*
@@ -97,13 +99,23 @@ int http_parse_request(char *buffer, size_t length, http_request *req) {
 
   char *pos = buffer;
   char *end = buffer + length;
+  // The strstr() function finds the first occurrence of the substring
+  // needle in the string haystack.  The terminating null bytes ('\0')
+  // are not compared.
   // Remember, '\r\n' is 2 characters long (2 bytes)
   char *line_end = strstr(pos, "\r\n");
   if (!line_end) {
     return -1;
   }
   *line_end = '\0';
-
+  // The sscanf() family of functions scans formatted input according
+  // to format as described below.
+  // This format may contain conversion
+  // specifications; the results from such conversions, if any, are
+  // stored in the locations pointed to by the pointer arguments that
+  // follow format.  Each pointer argument must be of a type that is
+  // appropriate for the value returned by the corresponding conversion
+  // specification.
   if (sscanf(pos, "%7s %511s %15s", req->method, req->path, req->version) !=
       3) {
     return -1;
@@ -124,6 +136,8 @@ int http_parse_request(char *buffer, size_t length, http_request *req) {
     }
 
     *line_end = '\0';
+    // The strchr() function returns a pointer to the first occurrence of
+    // the character c in the string s.
     char *colon = strchr(pos, ':');
     if (colon) {
       *colon = '\0';
@@ -133,6 +147,12 @@ int http_parse_request(char *buffer, size_t length, http_request *req) {
       trim(value);
 
       http_header *h = &req->headers[req->header_count++];
+      // stpcpy() - strcpy()
+      // These functions copy the string pointed to by src, into a
+      // string at the buffer pointed to by dst.  The programmer is
+      // responsible for allocating a destination buffer large
+      // enough, that is, strlen(src) + 1.  For the difference
+      // between the two functions, see RETURN VALUE.
       strncpy(h->name, name, sizeof(h->name));
       h->name[sizeof(h->name) - 1] = '\0';
       strncpy(h->value, value, sizeof(h->value));

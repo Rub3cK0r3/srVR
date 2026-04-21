@@ -2,7 +2,7 @@
 
 CC      := gcc
 TARGET  := srVR
-SRCS    := src/main.c src/server.c src/http.c src/router.c
+SRCS    := src/main.c src/server.c src/http.c src/router.c src/ev.c
 OBJS    := $(SRCS:.c=.o)
 INCLUDES:= -Iinclude
 

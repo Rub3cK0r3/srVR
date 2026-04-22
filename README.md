@@ -62,3 +62,9 @@ srVR is ideal for:
 * Learning HTTP request/response mechanics
 * Practicing C network programming
 * Gaining insight into server architecture without frameworks
+
+> [!WARNING]
+🚧 **Work in Progress**
+This project is built during my free time after work, so updates might be irregular.
+Development can occasionally pause depending on the complexity and the time required. Sometimes I’m also diving into books or other materials to better understand certain parts before continuing.
+Appreciate your understanding.

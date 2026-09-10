@@ -395,33 +395,311 @@ static int make_nonblocking(int fd) {
   return 0;
 }
 
-/** TODO: This implementation is demo yet.
-* TODO: implementation using the wrapper.
-* @brief Event-driven server loop using epoll.
-*
-* Creates an epoll instance and registers the listening socket to
-* receive incoming connection events. Accepts new clients in a
-* non-blocking loop and registers them with epoll for I/O readiness
-* notifications.
-*
-* Remember: An event can be defined as "a significant change in state". 
-* For example, when a consumer purchases a car, the car's state changes 
-* from "for sale" to "sold". 
-* A car dealer's system architecture may treat this state change as an 
-* event whose occurrence can be made known to other applications within 
-* the architecture.
-*
-* Client sockets are handled sequentially once they become readable
-* and are then closed.
-*
-* @param serverfd Listening socket descriptor.
-* @param cfg Pointer to server configuration. (optional)
-*
-* @note Non-blocking sockets are required for correct epoll behavior.
-* @note Uses EPOLLET (edge-triggered mode) for client sockets.
-* @note Designed as a simplified educational event loop, not a
-*       fully stateful production HTTP engine.
-*/
+/**
+ * @brief Send response data to an epoll client.
+ *
+ * Attempts to send queued response data to a client using non-blocking write.
+ * Updates the write position and marks the client for closure when done.
+ *
+ * @param client Pointer to the epoll_client structure.
+ *
+ * @return 0 on success or when send would block, -1 on error.
+ */
+static int epoll_send_response(epoll_client *client) {
+    if (!client->response_body || client->response_written >= client->response_size) {
+        /* All data sent; mark for closure. */
+        client->state = EPOLL_CLIENT_CLOSING;
+        return 0;
+    }
+
+    size_t remaining = client->response_size - client->response_written;
+    ssize_t sent = send(client->clientfd,
+                        client->response_body + client->response_written,
+                        remaining, 0);
+    if (sent == -1) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            /* Not ready to write yet; will retry next epoll event. */
+            return 0;
+        }
+        perror("send");
+        return -1;
+    }
+
+    client->response_written += (size_t)sent;
+    if (client->response_written >= client->response_size) {
+        client->state = EPOLL_CLIENT_CLOSING;
+    }
+    return 0;
+}
+
+/**
+ * @brief Handle HTTP request from an epoll client.
+ *
+ * Parses the received HTTP request, routes it to the appropriate handler,
+ * and constructs a response. Stores the response for sending.
+ *
+ * @param client Pointer to the epoll_client with buffered request.
+ * @param cfg    Pointer to server configuration.
+ */
+static void epoll_handle_request(epoll_client *client, const server_config *cfg) {
+    /* Parse the HTTP request. */
+    if (http_parse_request(client->buff, (size_t)client->buffer_len, &client->req) == -1) {
+        /* Send 400 Bad Request. */
+        const char *error_body = "400 Bad Request\r\n";
+        client->response_body = malloc(256);
+        if (!client->response_body) {
+            perror("malloc");
+            client->state = EPOLL_CLIENT_CLOSING;
+            return;
+        }
+        int n = snprintf(client->response_body, 256,
+                         "HTTP/1.1 400 Bad Request\r\n"
+                         "Content-Type: text/plain; charset=utf-8\r\n"
+                         "Content-Length: %zu\r\n"
+                         "Connection: close\r\n"
+                         "\r\n%s",
+                         strlen(error_body), error_body);
+        if (n > 0) {
+            client->response_size = (size_t)n;
+        } else {
+            free(client->response_body);
+            client->response_body = NULL;
+            client->response_size = 0;
+        }
+        client->state = EPOLL_CLIENT_WRITING;
+        return;
+    }
+
+    log_info("Request: %s %s %s", client->req.method, client->req.path, client->req.version);
+
+    /* For simplicity in this educational version, we'll only support GET/HEAD/POST.
+     * A real server would handle pipelining and keep-alive.
+     */
+    if (strcmp(client->req.method, "GET") == 0 ||
+        strcmp(client->req.method, "HEAD") == 0) {
+        /* Serve static file. */
+        char resolved[1024];
+        const char *rel = client->req.path;
+        if (strcmp(client->req.path, "/") == 0) {
+            rel = "/index.html";
+        }
+
+        /* Basic security: reject directory traversal. */
+        if (strstr(rel, "..") != NULL) {
+            const char *error_body = "403 Forbidden\r\n";
+            client->response_body = malloc(256);
+            if (!client->response_body) {
+                perror("malloc");
+                client->state = EPOLL_CLIENT_CLOSING;
+                return;
+            }
+            int n = snprintf(client->response_body, 256,
+                             "HTTP/1.1 403 Forbidden\r\n"
+                             "Content-Type: text/plain; charset=utf-8\r\n"
+                             "Content-Length: %zu\r\n"
+                             "Connection: close\r\n"
+                             "\r\n%s",
+                             strlen(error_body), error_body);
+            if (n > 0) {
+                client->response_size = (size_t)n;
+            } else {
+                free(client->response_body);
+                client->response_body = NULL;
+                client->response_size = 0;
+            }
+            client->state = EPOLL_CLIENT_WRITING;
+            return;
+        }
+
+        snprintf(resolved, sizeof(resolved), "%s%s", cfg->document_root, rel);
+
+        struct stat st;
+        if (stat(resolved, &st) == -1 || !S_ISREG(st.st_mode)) {
+            const char *error_body = "404 Not Found\r\n";
+            client->response_body = malloc(256);
+            if (!client->response_body) {
+                perror("malloc");
+                client->state = EPOLL_CLIENT_CLOSING;
+                return;
+            }
+            int n = snprintf(client->response_body, 256,
+                             "HTTP/1.1 404 Not Found\r\n"
+                             "Content-Type: text/plain; charset=utf-8\r\n"
+                             "Content-Length: %zu\r\n"
+                             "Connection: close\r\n"
+                             "\r\n%s",
+                             strlen(error_body), error_body);
+            if (n > 0) {
+                client->response_size = (size_t)n;
+            } else {
+                free(client->response_body);
+                client->response_body = NULL;
+                client->response_size = 0;
+            }
+            client->state = EPOLL_CLIENT_WRITING;
+            return;
+        }
+
+        int filefd = open(resolved, O_RDONLY);
+        if (filefd == -1) {
+            const char *error_body = "500 Internal Server Error\r\n";
+            client->response_body = malloc(256);
+            if (!client->response_body) {
+                perror("malloc");
+                client->state = EPOLL_CLIENT_CLOSING;
+                return;
+            }
+            int n = snprintf(client->response_body, 256,
+                             "HTTP/1.1 500 Internal Server Error\r\n"
+                             "Content-Type: text/plain; charset=utf-8\r\n"
+                             "Content-Length: %zu\r\n"
+                             "Connection: close\r\n"
+                             "\r\n%s",
+                             strlen(error_body), error_body);
+            if (n > 0) {
+                client->response_size = (size_t)n;
+            } else {
+                free(client->response_body);
+                client->response_body = NULL;
+                client->response_size = 0;
+            }
+            client->state = EPOLL_CLIENT_WRITING;
+            return;
+        }
+
+        /* Read entire file into response buffer. */
+        off_t total_size = st.st_size;
+        size_t header_size = 256;
+        size_t total_response_size = header_size + (size_t)total_size;
+
+        client->response_body = malloc(total_response_size);
+        if (!client->response_body) {
+            perror("malloc");
+            close(filefd);
+            client->state = EPOLL_CLIENT_CLOSING;
+            return;
+        }
+
+        /* Build HTTP response headers. */
+        int header_len = snprintf(client->response_body, header_size,
+                                  "HTTP/1.1 200 OK\r\n"
+                                  "Content-Type: text/html\r\n"
+                                  "Content-Length: %zu\r\n"
+                                  "Connection: close\r\n"
+                                  "\r\n",
+                                  (size_t)total_size);
+        if (header_len < 0 || (size_t)header_len >= header_size) {
+            free(client->response_body);
+            close(filefd);
+            client->state = EPOLL_CLIENT_CLOSING;
+            return;
+        }
+
+        /* For educational purposes, limit file size to avoid huge allocations. */
+        if (total_size > 1048576) { /* 1 MB limit */
+            snprintf(client->response_body + header_len, 
+                     header_size - (size_t)header_len,
+                     "File too large");
+            client->response_size = (size_t)header_len + 17;
+        } else {
+            ssize_t read_bytes = read(filefd, 
+                                       client->response_body + header_len,
+                                       (size_t)total_size);
+            if (read_bytes > 0) {
+                client->response_size = (size_t)header_len + (size_t)read_bytes;
+            } else {
+                client->response_size = (size_t)header_len;
+            }
+        }
+
+        close(filefd);
+        client->state = EPOLL_CLIENT_WRITING;
+        return;
+    } else if (strcmp(client->req.method, "POST") == 0) {
+        /* For POST, serve the requested file but also log the body. */
+        if (client->req.body && client->req.body_length > 0) {
+            log_info("POST body: %.*s", (int)client->req.body_length, client->req.body);
+        }
+        /* Fall through to serve file like GET. */
+        const char *error_body = "200 OK\r\nPOST received.";
+        client->response_body = malloc(256);
+        if (!client->response_body) {
+            perror("malloc");
+            client->state = EPOLL_CLIENT_CLOSING;
+            return;
+        }
+        int n = snprintf(client->response_body, 256,
+                         "HTTP/1.1 200 OK\r\n"
+                         "Content-Type: text/plain; charset=utf-8\r\n"
+                         "Content-Length: %zu\r\n"
+                         "Connection: close\r\n"
+                         "\r\n%s",
+                         strlen(error_body) - 9, /* skip "200 OK\r\n" */
+                         error_body + 9);
+        if (n > 0) {
+            client->response_size = (size_t)n;
+        } else {
+            free(client->response_body);
+            client->response_body = NULL;
+            client->response_size = 0;
+        }
+        client->state = EPOLL_CLIENT_WRITING;
+        return;
+    } else {
+        /* Unsupported method. */
+        const char *error_body = "405 Method Not Allowed\r\n";
+        client->response_body = malloc(256);
+        if (!client->response_body) {
+            perror("malloc");
+            client->state = EPOLL_CLIENT_CLOSING;
+            return;
+        }
+        int n = snprintf(client->response_body, 256,
+                         "HTTP/1.1 405 Method Not Allowed\r\n"
+                         "Content-Type: text/plain; charset=utf-8\r\n"
+                         "Content-Length: %zu\r\n"
+                         "Connection: close\r\n"
+                         "\r\n%s",
+                         strlen(error_body), error_body);
+        if (n > 0) {
+            client->response_size = (size_t)n;
+        } else {
+            free(client->response_body);
+            client->response_body = NULL;
+            client->response_size = 0;
+        }
+        client->state = EPOLL_CLIENT_WRITING;
+        return;
+    }
+}
+
+/**
+ * @brief Event-driven server loop using epoll.
+ *
+ * Creates an epoll instance and registers the listening socket to
+ * receive incoming connection events. Accepts new clients in a
+ * non-blocking loop and registers them with epoll for I/O readiness
+ * notifications.
+ *
+ * Client state transitions:
+ *   READING  → Client is receiving HTTP request data
+ *   WRITING  → Client is sending HTTP response data
+ *   CLOSING  → Client connection is being closed
+ *
+ * The event loop processes up to MAX_EVENTS per iteration:
+ *   - New connections: Accept and register with epoll for reading
+ *   - Readable events:  Read HTTP request data; parse and handle when complete
+ *   - Writable events:  Send HTTP response data
+ *   - Error events:     Close connection and clean up
+ *
+ * @param serverfd Listening socket descriptor.
+ * @param cfg Pointer to server configuration.
+ *
+ * @note Non-blocking sockets are required for correct epoll behavior.
+ * @note Uses EPOLLET (edge-triggered mode) for client sockets.
+ * @note Implements a state machine for each client connection.
+ * @note Flow: READ → PARSE → ROUTE → WRITE → CLOSE
+ */
 void server_run_epoll(int serverfd, const server_config *cfg) {
     if (make_nonblocking(serverfd) == -1) {
         perror("fcntl");
@@ -461,10 +739,10 @@ void server_run_epoll(int serverfd, const server_config *cfg) {
         }
 
         for (int i = 0; i < n; ++i) {
-
-            // NEW CONNECTIONS
+            /* Check if this is an event on the listening socket. */
             if (events[i].data.fd == serverfd) {
-                while (1) {
+                /* NEW CONNECTION LOOP */
+                while (srvr_running) {
                     struct sockaddr_in clientaddr;
                     socklen_t len = sizeof(clientaddr);
 
@@ -489,9 +767,17 @@ void server_run_epoll(int serverfd, const server_config *cfg) {
                         continue;
                     }
 
+                    /* Initialize client state. */
                     client->clientfd = clientfd;
                     client->buffer_len = 0;
+                    client->state = EPOLL_CLIENT_READING;
+                    client->request_parsed = 0;
+                    client->response_body = NULL;
+                    client->response_size = 0;
+                    client->response_written = 0;
+                    memset(&client->req, 0, sizeof(client->req));
 
+                    /* Register with epoll for reading. */
                     struct epoll_event cev;
                     cev.events = EPOLLIN | EPOLLET;
                     cev.data.ptr = client;
@@ -502,56 +788,112 @@ void server_run_epoll(int serverfd, const server_config *cfg) {
                         free(client);
                         continue;
                     }
+
+                    log_info("Accepted client fd=%d", clientfd);
                 }
             }
-
-            // EXISTING CLIENTS
+            /* Client socket event. */
             else {
                 epoll_client *client = (epoll_client *)events[i].data.ptr;
                 int clientfd = client->clientfd;
 
-                // handle disconnects/errors
+                /* Handle error conditions and client disconnection. */
                 if (events[i].events & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) {
+                    if (client->response_body) {
+                        free(client->response_body);
+                    }
                     close(clientfd);
                     free(client);
                     continue;
                 }
 
-                // handle readable data
+                /* Handle readable data on the socket. */
                 if (events[i].events & EPOLLIN) {
-                    while (1) {
-                        ssize_t bytes = read(clientfd, 
-                                client->buff + client->buffer_len, 
-                                sizeof(client->buff) - client->buffer_len
-                        );
+                    if (client->state == EPOLL_CLIENT_READING) {
+                        /* Continue reading HTTP request. */
+                        while (1) {
+                            ssize_t bytes = read(clientfd,
+                                                  client->buff + client->buffer_len,
+                                                  sizeof(client->buff) - (size_t)client->buffer_len);
 
-                        if (bytes == -1) {
-
-                            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                            if (bytes == -1) {
+                                if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                                    /* No more data available now. */
+                                    break;
+                                }
+                                perror("read");
+                                client->state = EPOLL_CLIENT_CLOSING;
                                 break;
+                            } else if (bytes == 0) {
+                                /* Client closed connection. */
+                                client->state = EPOLL_CLIENT_CLOSING;
+                                break;
+                            } else {
+                                /* Accumulate data in buffer. */
+                                client->buffer_len += (int)bytes;
+
+                                /* Check if we have a complete HTTP request. */
+                                if (!client->request_parsed &&
+                                    is_http_request_complete(client->buff, (size_t)client->buffer_len)) {
+                                    /* Parse and handle the request. */
+                                    epoll_handle_request(client, cfg);
+                                    client->request_parsed = 1;
+                                    break;
+                                }
+
+                                /* If buffer is full, close connection. */
+                                if ((size_t)client->buffer_len >= sizeof(client->buff)) {
+                                    log_warn("Request buffer overflow on fd=%d", clientfd);
+                                    client->state = EPOLL_CLIENT_CLOSING;
+                                    break;
+                                }
                             }
+                        }
 
-                            perror("read");
-                            close(clientfd);
-                            free(client);
-                            break;
-
-                        } else if (bytes == 0) {
-
-                            close(clientfd);
-                            free(client);
-                            break;
-
-                        } else {
-
-                            // TODO: Handling active clients
-                            client->buffer_len = bytes;
-                            //printf("Received: %.*s\n", (int)bytes, client->buff);
-                            // TODO:
-                            //READ → PARSE → ROUTE → WRITE → CLOSE/KEEPALIVE
-
+                        /* If request is ready, transition to writing. */
+                        if (client->request_parsed && client->state == EPOLL_CLIENT_WRITING) {
+                            /* Modify epoll event to wait for write readiness. */
+                            struct epoll_event cev;
+                            cev.events = EPOLLOUT | EPOLLET;
+                            cev.data.ptr = client;
+                            if (epoll_ctl(epfd, EPOLL_CTL_MOD, clientfd, &cev) == -1) {
+                                perror("epoll_ctl MOD to EPOLLOUT");
+                                client->state = EPOLL_CLIENT_CLOSING;
+                            }
                         }
                     }
+                }
+
+                /* Handle writable events. */
+                if (events[i].events & EPOLLOUT) {
+                    if (client->state == EPOLL_CLIENT_WRITING) {
+                        if (epoll_send_response(client) == -1) {
+                            client->state = EPOLL_CLIENT_CLOSING;
+                        }
+
+                        /* If still writing, modify epoll to wait for write again. */
+                        if (client->state == EPOLL_CLIENT_WRITING) {
+                            struct epoll_event cev;
+                            cev.events = EPOLLOUT | EPOLLET;
+                            cev.data.ptr = client;
+                            if (epoll_ctl(epfd, EPOLL_CTL_MOD, clientfd, &cev) == -1) {
+                                perror("epoll_ctl MOD");
+                                client->state = EPOLL_CLIENT_CLOSING;
+                            }
+                        }
+                    }
+                }
+
+                /* Clean up if client is marked for closing. */
+                if (client->state == EPOLL_CLIENT_CLOSING) {
+                    if (epoll_ctl(epfd, EPOLL_CTL_DEL, clientfd, NULL) == -1) {
+                        perror("epoll_ctl DEL");
+                    }
+                    if (client->response_body) {
+                        free(client->response_body);
+                    }
+                    close(clientfd);
+                    free(client);
                 }
             }
         }

@@ -13,7 +13,11 @@ CFLAGS_RELEASE := -std=c11 -Wall -Wextra -pedantic -O2 -DNDEBUG $(INCLUDES)
 
 LDFLAGS := -lpthread
 
-.PHONY: all debug release clean
+TEST_TARGET := test_epoll
+TEST_SRCS   := tests/test_epoll.c src/server.c src/http.c src/router.c src/ev.c
+TEST_OBJS   := $(TEST_SRCS:.c=.o)
+
+.PHONY: all debug release clean test test-epoll
 
 # By default build a debug binary; this is the most useful
 # configuration during development and when exploring the code.
@@ -37,5 +41,19 @@ src/%.o: src/%.c
 
 # Remove all build artefacts so we can start from a clean tree.
 clean:
-	$(RM) $(OBJS) $(TARGET)
+	$(RM) $(OBJS) $(TARGET) $(TEST_OBJS) $(TEST_TARGET)
+
+# Build and run tests
+test: CFLAGS := $(CFLAGS_DEBUG)
+test: test-epoll
+
+test-epoll: CFLAGS := $(CFLAGS_DEBUG)
+test-epoll: $(TEST_TARGET)
+	./$(TEST_TARGET)
+
+$(TEST_TARGET): $(TEST_OBJS)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/%.o: tests/%.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 

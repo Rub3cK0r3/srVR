@@ -1,3 +1,26 @@
+# Build artifacts
+*.o
+*.a
+*.so
+*.so.*
+
+# Compiled binaries
+srVR
+test_epoll
+bin/srVR
+
+# Generated files
 compile_commands.json
 server.log
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Cache and temporary files
 .cache
+.DS_Store
+*.tmp

@@ -332,11 +332,14 @@ void server_run_threaded(int serverfd, const server_config *cfg) {
   // on use of the variable lock. All the reads and writes for a volatile 
   // variable or field are really done, and done in the order specified by 
   // the source code. 
-  while (srvr_running) {
+  while (srvr_running) 
+  {
     int clientfd =
         accept(serverfd, (struct sockaddr *)&clientaddr, &client_len);
-    if (clientfd == -1) {
-      if (!srvr_running && (errno == EINTR || errno == EBADF)) {
+    if (clientfd == -1) 
+    {
+      if (!srvr_running && (errno == EINTR || errno == EBADF)) 
+      {
         break;
       }
       perror("accept");
@@ -344,7 +347,8 @@ void server_run_threaded(int serverfd, const server_config *cfg) {
     }
 
     client_thread_args *cta = malloc(sizeof(*cta));
-    if (!cta) {
+    if (!cta) 
+    {
       log_error("Out of memory for client_thread_args");
       close(clientfd);
       continue;
@@ -357,7 +361,8 @@ void server_run_threaded(int serverfd, const server_config *cfg) {
     // start_routine(); arg is passed as the sole argument of
     // start_routine().
     pthread_t tid;
-    if (pthread_create(&tid, NULL, client_thread_main, cta) != 0) {
+    if (pthread_create(&tid, NULL, client_thread_main, cta) != 0) 
+    {
       log_error("Failed to create client thread");
       close(clientfd);
       free(cta);
@@ -386,13 +391,98 @@ void server_run_threaded(int serverfd, const server_config *cfg) {
 */
 static int make_nonblocking(int fd) {
   int flags = fcntl(fd, F_GETFL, 0);
-  if (flags == -1) {
+  if (flags == -1) 
+  {
     return -1;
   }
-  if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1) {
+  if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1) 
+  {
     return -1;
   }
   return 0;
+}
+
+/**
+ * @brief Processes state transitions and operations for an active client connection.
+ *
+ * Implements a unified synchronous lifecycle handler that executes the sequence:
+ * READ -> PARSE -> ROUTE -> WRITE -> CLOSE/KEEPALIVE within a single block.
+ *
+ * @param client Pointer to the active client state structure.
+ * @param bytes  The number of raw bytes read from the stream in the current transaction.
+ *
+ * @return void
+ *
+ * @note Enforces null-termination on the inbound buffer before processing strings.
+ * @note Closes and invalidates the file descriptor if the connection is not persistent.
+ */
+void handle_active_client_epoll(epoll_client *client, ssize_t bytes){
+    // READ
+    client->buffer_len = bytes;
+    // Aseguramos que el buffer termine en un carácter nulo para poder usar funciones de string de forma segura
+    client->buff[bytes] = '\0'; 
+
+    // Variables locales para el flujo interno
+    char method[8] = {0};
+    char path[256] = {0};
+    bool keep_alive = false;
+    char response[2048] = {0};
+
+    // PARSE
+    // Extraemos el método (GET, POST) y la ruta (/index.html)
+    if (sscanf(client->buff, "%7s %255s", method, path) < 2) {
+        // Si no se puede parsear, preparamos un Bad Request directamente
+        snprintf(response, sizeof(response), "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n");
+        goto send_and_close; // Saltamos directo a la escritura y cierre por error
+    }
+
+    // Buscamos si el cliente solicita mantener la conexión viva
+    if (strcasestr(client->buff, "Connection: keep-alive") != NULL) {
+        keep_alive = true;
+    }
+
+    // ROUTE
+    if (strcmp(path, "/") == 0 || strcmp(path, "/index.html") == 0) {
+        // Mock for now, later we'll add static
+        snprintf(response, sizeof(response), 
+                 "HTTP/1.1 200 OK\r\n"
+                 "Content-Type: text/html\r\n"
+                 "Content-Length: 18\r\n\r\n"
+                 "<h1>Hola Mundo</h1>");
+    } else {
+        // 404 Not Found si la ruta no coincide con nada
+        snprintf(response, sizeof(response), 
+                 "HTTP/1.1 404 Not Found\r\n"
+                 "Content-Length: 0\r\n\r\n");
+    }
+
+send_and_close: // Etiqueta en caso de error de parseo que requiere respuesta inmediata
+
+    // WRITE
+    size_t total_to_send = strlen(response);
+    size_t total_sent = 0;
+    
+    while (total_sent < total_to_send) {
+        ssize_t sent = write(client->clientfd, response + total_sent, total_to_send - total_sent);
+        if (sent <= 0) {
+            perror("Error al escribir en el socket del cliente");
+            keep_alive = false; // Forzamos el cierre si la escritura falla
+            break;
+        }
+        total_sent += sent;
+    }
+
+    // CLOSE / KEEPALIVE
+    if (!keep_alive) {
+        printf("[FD %d] Cerrando conexión de forma limpia.\n", client->clientfd);
+        close(client->clientfd);
+        client->clientfd = -1; // Marcamos el socket como cerrado / disponible
+    } else {
+        printf("[FD %d] Manteniendo conexión viva (Keep-Alive).\n", client->clientfd);
+        // Limpiamos el buffer del cliente para recibir la próxima petición en la misma conexión
+        memset(client->buff, 0, sizeof(client->buff));
+        client->buffer_len = 0;
+    }
 }
 
 /** TODO: This implementation is demo yet.
@@ -423,14 +513,16 @@ static int make_nonblocking(int fd) {
 *       fully stateful production HTTP engine.
 */
 void server_run_epoll(int serverfd, const server_config *cfg) {
-    if (make_nonblocking(serverfd) == -1) {
+    if (make_nonblocking(serverfd) == -1) 
+    {
         perror("fcntl");
         close(serverfd);
         return;
     }
 
     int epfd = epoll_create1(0);
-    if (epfd == -1) {
+    if (epfd == -1) 
+    {
         perror("epoll_create1");
         close(serverfd);
         return;
@@ -440,7 +532,8 @@ void server_run_epoll(int serverfd, const server_config *cfg) {
     ev.events = EPOLLIN;
     ev.data.fd = serverfd;
 
-    if (epoll_ctl(epfd, EPOLL_CTL_ADD, serverfd, &ev) == -1) {
+    if (epoll_ctl(epfd, EPOLL_CTL_ADD, serverfd, &ev) == -1) 
+    {
         perror("epoll_ctl");
         close(epfd);
         close(serverfd);
@@ -450,40 +543,49 @@ void server_run_epoll(int serverfd, const server_config *cfg) {
     const int MAX_EVENTS = 64;
     struct epoll_event events[MAX_EVENTS];
 
-    while (srvr_running) {
+    while (srvr_running) 
+    {
         int n = epoll_wait(epfd, events, MAX_EVENTS, 1000);
-        if (n == -1) {
-            if (errno == EINTR) {
+        if (n == -1) 
+        {
+            if (errno == EINTR) 
+            {
                 continue;
             }
             perror("epoll_wait");
             break;
         }
 
-        for (int i = 0; i < n; ++i) {
-
+        for (int i = 0; i < n; ++i) 
+        {
             // NEW CONNECTIONS
-            if (events[i].data.fd == serverfd) {
-                while (1) {
+            if (events[i].data.fd == serverfd) 
+            {
+                while (1) 
+                {
                     struct sockaddr_in clientaddr;
                     socklen_t len = sizeof(clientaddr);
 
                     int clientfd = accept(serverfd, (struct sockaddr *)&clientaddr, &len);
-                    if (clientfd == -1) {
-                        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                    if (clientfd == -1) 
+                    {
+                        if (errno == EAGAIN || errno == EWOULDBLOCK) 
+                        {
                             break;
                         }
                         perror("accept");
                         break;
                     }
 
-                    if (make_nonblocking(clientfd) == -1) {
+                    if (make_nonblocking(clientfd) == -1) 
+                    {
                         close(clientfd);
                         continue;
                     }
 
                     epoll_client *client = malloc(sizeof(epoll_client));
-                    if (!client) {
+                    if (!client) 
+                    {
                         perror("malloc");
                         close(clientfd);
                         continue;
@@ -496,7 +598,8 @@ void server_run_epoll(int serverfd, const server_config *cfg) {
                     cev.events = EPOLLIN | EPOLLET;
                     cev.data.ptr = client;
 
-                    if (epoll_ctl(epfd, EPOLL_CTL_ADD, clientfd, &cev) == -1) {
+                    if (epoll_ctl(epfd, EPOLL_CTL_ADD, clientfd, &cev) == -1) 
+                    {
                         perror("epoll_ctl ADD client");
                         close(clientfd);
                         free(client);
@@ -504,30 +607,35 @@ void server_run_epoll(int serverfd, const server_config *cfg) {
                     }
                 }
             }
-
             // EXISTING CLIENTS
-            else {
+            else 
+            {
                 epoll_client *client = (epoll_client *)events[i].data.ptr;
                 int clientfd = client->clientfd;
 
                 // handle disconnects/errors
-                if (events[i].events & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) {
+                if (events[i].events & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) 
+                {
                     close(clientfd);
                     free(client);
                     continue;
                 }
 
                 // handle readable data
-                if (events[i].events & EPOLLIN) {
-                    while (1) {
+                if (events[i].events & EPOLLIN) 
+                {
+                    while (1) 
+                    {
                         ssize_t bytes = read(clientfd, 
                                 client->buff + client->buffer_len, 
                                 sizeof(client->buff) - client->buffer_len
                         );
 
-                        if (bytes == -1) {
+                        if (bytes == -1) 
+                        {
 
-                            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                            if (errno == EAGAIN || errno == EWOULDBLOCK) 
+                            {
                                 break;
                             }
 
@@ -536,28 +644,25 @@ void server_run_epoll(int serverfd, const server_config *cfg) {
                             free(client);
                             break;
 
-                        } else if (bytes == 0) {
+                        } 
+                        else if (bytes == 0) 
+                        {
 
                             close(clientfd);
                             free(client);
                             break;
 
-                        } else {
+                        }
+                        else 
+                        {
 
-                            // TODO: Handling active clients
-                            client->buffer_len = bytes;
-                            //printf("Received: %.*s\n", (int)bytes, client->buff);
-                            // TODO:
-                            //READ → PARSE → ROUTE → WRITE → CLOSE/KEEPALIVE
-
+                            handle_active_client_epoll(client, client->buffer_len);
                         }
                     }
                 }
             }
         }
     }
-
     close(epfd);
     close(serverfd);
 }
-

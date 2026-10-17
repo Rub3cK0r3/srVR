@@ -27,3 +27,21 @@ git test
 [2026-04-21 12:36:23] INFO: Listening on port 8080, root=./www
 [2026-04-21 12:36:31] INFO: Accepted client fd=4
 [2026-04-21 12:36:31] INFO: Request: GET / HTTP/1.1
+[2026-10-17 17:37:52] INFO: Listening on port 8080, root=./www
+[2026-10-17 17:38:01] INFO: Accepted client fd=4
+[2026-10-17 17:38:01] INFO: Request: GET / HTTP/1.1
+[2026-10-17 17:38:01] INFO: Accepted client fd=5
+[2026-10-17 17:38:01] INFO: Request: GET /favicon.ico HTTP/1.1
+[2026-10-17 17:38:08] INFO: Accepted client fd=4
+[2026-10-17 17:38:08] INFO: Request: GET / HTTP/1.1
+[2026-10-17 17:38:08] INFO: Accepted client fd=5
+[2026-10-17 17:38:08] INFO: Request: GET / HTTP/1.1
+[2026-10-17 17:38:09] INFO: Accepted client fd=4
+[2026-10-17 17:38:09] INFO: Request: GET / HTTP/1.1
+[2026-10-17 17:38:09] INFO: Accepted client fd=5
+[2026-10-17 17:38:09] INFO: Request: GET / HTTP/1.1
+[2026-10-17 17:38:09] INFO: Accepted client fd=4
+[2026-10-17 17:38:09] INFO: Request: GET / HTTP/1.1
+[2026-10-17 17:38:09] INFO: Accepted client fd=5
+[2026-10-17 17:38:09] INFO: Request: GET / HTTP/1.1
+[2026-10-17 17:39:30] INFO: Listening on port 8080, root=./www

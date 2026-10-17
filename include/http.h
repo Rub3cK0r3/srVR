@@ -10,6 +10,7 @@
 #define SRVR_HTTP_H
 
 #include <stddef.h>
+#include <stdbool.h>
 
 #define HTTP_MAX_METHOD_LEN 8
 #define HTTP_MAX_PATH_LEN 512
@@ -45,6 +46,7 @@ typedef struct http_request {
 
   char *body;
   size_t body_length;
+  bool keep_alive; // Added to handle close -> keep-alive 
 } http_request;
 
 /*

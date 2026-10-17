@@ -13,7 +13,7 @@
 #include <netinet/in.h>
 #include <stddef.h>
 #include <signal.h>
-#include <time.h>
+#include <ev.h>
 
 /* Default values used when no configuration file is present. */
 #define SRVR_DEFAULT_PORT 8080
@@ -77,6 +77,11 @@ void server_run_epoll(int serverfd, const server_config *cfg);
  * and close the listening socket.
  */
 extern volatile sig_atomic_t srvr_running;
+
+/*
+ * Function to handle client in epoll implementation
+ * */
+void handle_active_client_epoll(epoll_client *client, ssize_t bytes);
 
 /*
  * Simple logging helpers. All log entries are timestamped and

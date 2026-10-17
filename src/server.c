@@ -456,7 +456,7 @@ void handle_active_client_epoll(epoll_client *client, ssize_t bytes){
                  "Content-Length: 0\r\n\r\n");
     }
 
-send_and_close: // Etiqueta en caso de error de parseo que requiere respuesta inmediata
+send_and_close: ; // Etiqueta en caso de error de parseo que requiere respuesta inmediata
 
     // WRITE
     size_t total_to_send = strlen(response);
@@ -862,13 +862,6 @@ void server_run_epoll(int serverfd, const server_config *cfg) {
             break;
         }
 
-        for (int i = 0; i < n; ++i) 
-        {
-            // NEW CONNECTIONS
-            if (events[i].data.fd == serverfd) 
-            {
-                while (1) 
-                {
         for (int i = 0; i < n; ++i) {
             /* Check if this is an event on the listening socket. */
             if (events[i].data.fd == serverfd) {
@@ -929,113 +922,57 @@ void server_run_epoll(int serverfd, const server_config *cfg) {
                 }
             }
             // EXISTING CLIENTS
-            else 
-            {
+            else {
                 epoll_client *client = (epoll_client *)events[i].data.ptr;
                 int clientfd = client->clientfd;
 
-                // handle disconnects/errors
-                if (events[i].events & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) 
-                {
-                    /* Client socket event. */
-                } else 
-                {
-                epoll_client *client = (epoll_client *)events[i].data.ptr;
-                int clientfd = client->clientfd;
-
-                /* Handle error conditions and client disconnection. */
                 if (events[i].events & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) {
-                    if (client->response_body) {
-                        free(client->response_body);
-                    }
-                    close(clientfd);
-                    free(client);
-                    continue;
-                }
-                // handle readable data
-                if (events[i].events & EPOLLIN) 
-                {
-                    while (1) 
-                    {
-                        ssize_t bytes = read(clientfd, 
-                                client->buff + client->buffer_len, 
-                                sizeof(client->buff) - client->buffer_len
-                        );
-
-                        if (bytes == -1) 
-                        {
-
-                            if (errno == EAGAIN || errno == EWOULDBLOCK) 
-                            {
-                /* Handle readable data on the socket. */
-                if (events[i].events & EPOLLIN) {
-                    if (client->state == EPOLL_CLIENT_READING) {
-                        /* Continue reading HTTP request. */
-                        while (1) {
-                            ssize_t bytes = read(clientfd,
-                                                  client->buff + client->buffer_len,
-                                                  sizeof(client->buff) - (size_t)client->buffer_len);
-
-                            if (bytes == -1) {
-                                if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                                    /* No more data available now. */
-                                    break;
-                                }
-                                perror("read");
-                                client->state = EPOLL_CLIENT_CLOSING;
-                                break;
-                            } else if (bytes == 0) {
-                                /* Client closed connection. */
-                                client->state = EPOLL_CLIENT_CLOSING;
-                                break;
-                            } else {
-                                /* Accumulate data in buffer. */
-                                client->buffer_len += (int)bytes;
-
-                                /* Check if we have a complete HTTP request. */
-                                if (!client->request_parsed &&
-                                    is_http_request_complete(client->buff, (size_t)client->buffer_len)) {
-                                    /* Parse and handle the request. */
-                                    epoll_handle_request(client, cfg);
-                                    client->request_parsed = 1;
-                                    break;
-                                }
-
-                                /* If buffer is full, close connection. */
-                                if ((size_t)client->buffer_len >= sizeof(client->buff)) {
-                                    log_warn("Request buffer overflow on fd=%d", clientfd);
-                                    client->state = EPOLL_CLIENT_CLOSING;
-                                    break;
-                                }
-                            }
+                    client->state = EPOLL_CLIENT_CLOSING;
+                } else if ((events[i].events & EPOLLIN) &&
+                           client->state == EPOLL_CLIENT_READING) {
+                    while (1) {
+                        size_t available = sizeof(client->buff) -
+                                           (size_t)client->buffer_len;
+                        if (available == 0) {
+                            log_warn("Request buffer overflow on fd=%d", clientfd);
+                            client->state = EPOLL_CLIENT_CLOSING;
+                            break;
                         }
+
+                        ssize_t bytes = read(clientfd,
+                                             client->buff + client->buffer_len,
+                                             available);
+                        if (bytes == -1) {
+                            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                                break;
+                            }
                             perror("read");
-                            close(clientfd);
-                            free(client);
+                            client->state = EPOLL_CLIENT_CLOSING;
                             break;
-
-                        } else if (bytes == 0) 
-                        {
-
-                            close(clientfd);
-                            free(client);
-                            break;
-
-                        } else 
-                        {
-                            handle_active_client_epoll(client, client->buffer_len);
-                            /* If request is ready, transition to writing. */
-                            if (client->request_parsed && client->state == EPOLL_CLIENT_WRITING) {
-                                /* Modify epoll event to wait for write readiness. */
-                                struct epoll_event cev;
-                                cev.events = EPOLLOUT | EPOLLET;
-                                cev.data.ptr = client;
-                                if (epoll_ctl(epfd, EPOLL_CTL_MOD, clientfd, &cev) == -1) {
-                                    perror("epoll_ctl MOD to EPOLLOUT");
-                                    client->state = EPOLL_CLIENT_CLOSING;
-                                }
-                            }
                         }
+                        if (bytes == 0) {
+                            client->state = EPOLL_CLIENT_CLOSING;
+                            break;
+                        }
+
+                        client->buffer_len += (int)bytes;
+                        if (is_http_request_complete(client->buff,
+                                                     (size_t)client->buffer_len)) {
+                            epoll_handle_request(client, cfg);
+                            client->request_parsed = 1;
+                            break;
+                        }
+                    }
+
+                    if (client->state == EPOLL_CLIENT_WRITING) {
+                        struct epoll_event cev;
+                        cev.events = EPOLLOUT | EPOLLET;
+                        cev.data.ptr = client;
+                        if (epoll_ctl(epfd, EPOLL_CTL_MOD, clientfd, &cev) == -1) {
+                            perror("epoll_ctl MOD to EPOLLOUT");
+                            client->state = EPOLL_CLIENT_CLOSING;
+                        }
+                    }
                 }
 
                 /* Handle writable events. */

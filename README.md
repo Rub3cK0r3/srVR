@@ -9,7 +9,13 @@
 
 It is tiny, simple, and educational — perfect for learning low-level networking and HTTP basics. The project demonstrates two distinct concurrency models: **thread-per-connection** and **event-driven (epoll)**.
 
----
+
+## 💡 About the Author & Motivation
+
+I built this project in my free time as a **Backend Systems Engineer** with a deep passion for low-level server internals and system architecture. 
+
+I am fascinated by how things work beneath the application layer—how operating systems handle traffic, manage file descriptors, and scale network I/O. **srVR** is part of my journey to master these concepts and transition into specialized roles within **Systems Engineering, Core Backend Infrastructure, or Network Programming**.
+
 
 ## 📍 Overview
 
@@ -27,8 +33,6 @@ srVR demonstrates fundamental concepts in network programming:
 
 It is **not** a production-ready server — this is intentional. The focus is on teaching fundamentals and best practices, not implementing the full HTTP/1.1 specification.
 
----
-
 ## ⚙ Features
 
 * **Zero external dependencies** — uses only POSIX APIs
@@ -42,15 +46,11 @@ It is **not** a production-ready server — this is intentional. The focus is on
 * **Security basics** — directory traversal protection
 * **Clean code** — extensively commented, POSIX-compliant, easy to extend
 
----
-
 ## 🛠 Requirements
 
 * **POSIX-compliant system**: Linux, macOS, BSD
 * **C compiler**: GCC, Clang, or any standard C99-compatible compiler
 * **Linux epoll support** (for epoll mode): Linux 2.6+ with libc support
-
----
 
 ## 🚀 Build & Run
 
@@ -184,134 +184,11 @@ Press `Ctrl+C` (SIGINT) for graceful shutdown. The server will:
 3. Close all sockets
 4. Exit cleanly
 
-```bash
-# In terminal where server is running
-Ctrl+C
-
-# Or from another terminal
-kill -SIGINT $(pgrep -f "bin/srVR")
-```
-
----
-
-## 📚 Architecture
-
-### Thread-Based Model (`use_epoll=0`)
-
-The default mode uses a **thread-per-connection** architecture:
-
-1. Main thread accepts incoming connections
-2. For each connection, spawn a new detached thread
-3. Thread handles the complete HTTP request/response cycle
-4. Thread cleans up and exits
-5. Main thread continues accepting
-
-**Pros:**
-- Simple and straightforward to understand
-- Each connection is independent
-- Clean separation of concerns
-
-**Cons:**
-- Context switching overhead with many connections
-- Not suitable for very high concurrency (thousands of connections)
-
-### Event-Driven Model (`use_epoll=1`)
-
-The epoll-based mode uses a **single-threaded event loop**:
-
-1. Main thread creates an epoll instance
-2. Registers listening socket for `EPOLLIN` events
-3. Waits for events (new connections, readable sockets, errors)
-4. For new connections, registers client socket with epoll
-5. When client socket becomes readable, parses HTTP request
-6. Processes request and sends response
-7. Handles disconnections and errors
-
-**Pros:**
-- Scales to thousands of concurrent connections
-- Lower memory overhead (no per-thread stacks)
-- Efficient CPU utilization
-- Modern, production-inspired design
-
-**Cons:**
-- More complex state management
-- Requires non-blocking I/O understanding
-- Harder to debug
-
----
-
-## 📂 Project Structure
-
-```
-srVR/
-├── Makefile                 # Build rules
-├── README.md               # This file
-├── LICENSE                 # Project license
-├── compile_commands.json   # Clangd configuration
-├── config/
-│   └── server.conf        # Configuration file
-├── include/
-│   ├── server.h           # Core server interfaces
-│   ├── router.h           # Request routing
-│   ├── http.h             # HTTP parsing
-│   └── ev.h               # Event loop structures
-├── src/
-│   ├── main.c             # Entry point
-│   ├── server.c           # Server core + threading/epoll
-│   ├── router.c           # HTTP request handling
-│   ├── http.c             # HTTP parsing utilities
-│   └── ev.c               # Event loop wrapper (optional)
-├── www/
-│   └── index.html         # Default served file
-└── bin/                   # Compiled binaries
-
-```
-
----
-
-## 📚 Educational Value
-
-### Perfect for Learning
-
-* **TCP/IP fundamentals** — socket creation, binding, listening, accepting
-* **HTTP protocol** — request parsing, response formatting, status codes
-* **Concurrency patterns** — understanding threads vs. event loops
-* **Linux system calls** — `epoll()`, `fcntl()`, `sendfile()`, signal handling
-* **C best practices** — memory management, error handling, secure coding
-* **Network security** — directory traversal protection, input validation
-
-### Key Concepts Taught
-
-| Concept | Location | Details |
-|---------|----------|---------|
-| Socket creation | `server_listen()` | IPv4 TCP socket setup |
-| Accept loop | `server_run_threaded()` | Blocking accept pattern |
-| Threading | `client_thread_main()` | Thread-per-connection model |
-| Event loop | `server_run_epoll()` | Non-blocking I/O with epoll |
-| HTTP parsing | `http_parse_request()` | Request line and headers |
-| Static file serving | `serve_static_file()` | Zero-copy with sendfile() |
-| Signal handling | `main.c` | Graceful shutdown |
-| Logging | `log_info/warn/error()` | Structured logging |
-
----
-
 ## 🔧 Extending srVR
 
 ### Add a New Route
 
 Edit `src/router.c` and modify `handle_client_connection()`:
-
-```c
-if (strcmp(req.method, "GET") == 0) {
-    if (strcmp(req.path, "/api/status") == 0) {
-        send_simple_response(clientfd, 200, "OK", 
-                           "{\"status\":\"running\"}", 
-                           "application/json");
-    } else {
-        serve_static_file(clientfd, cfg, req.path);
-    }
-}
-```
 
 ### Change the Listening Port
 
@@ -325,46 +202,7 @@ port=9000
 
 Edit `send_simple_response()` in `src/router.c` to add custom headers.
 
----
-
-## 🧪 Testing
-
-The project includes a test suite to verify both concurrency models:
-
-```bash
-# Run all tests
-make test
-
-# Run epoll tests specifically
-make test-epoll
-```
-
-See `tests/` directory for test implementations.
-
----
-
 ## 🐛 Debugging
-
-### Enable Verbose Logging
-
-The server logs all requests and errors to `server.log`:
-
-```bash
-tail -f server.log
-```
-
-### Test with curl
-
-```bash
-# GET request
-curl -v http://localhost:8080/index.html
-
-# POST request
-curl -X POST -d "test data" http://localhost:8080/
-
-# HEAD request
-curl -I http://localhost:8080/
-```
 
 ### Use strace for System Calls
 
@@ -393,19 +231,8 @@ Contributions are welcome! Please:
 
 ## 💡 Future Enhancements
 
-* HTTP/1.1 Keep-Alive support
 * HTTPS/TLS encryption
 * Multi-threaded epoll (using thread pools)
 * Performance benchmarking suite
 * More comprehensive HTTP parsing
 * JSON configuration format
-* Understanding raw TCP socket communication
-* Learning HTTP request/response mechanics
-* Practicing C network programming
-* Gaining insight into server architecture without frameworks
-
-> [!WARNING]
-🚧 **Work in Progress**
-This project is built during my free time after work, so updates might be irregular.
-Development can occasionally pause depending on the complexity and the time required. Sometimes I’m also diving into books or other materials to better understand certain parts before continuing.
-Appreciate your understanding.

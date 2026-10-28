@@ -18,9 +18,9 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "http.h"
-#include "router.h"
-#include "server.h"
+#include "../include/net/http.h"
+#include "../include/net/router.h"
+#include "../include/net/server.h"
 
 /**
 * @brief Read available data from a socket with HTTP-aware early exit.

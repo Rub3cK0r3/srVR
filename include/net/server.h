@@ -13,7 +13,7 @@
 #include <netinet/in.h>
 #include <stddef.h>
 #include <signal.h>
-#include <ev.h>
+#include "../net/http.h"
 
 /* Default values used when no configuration file is present. */
 #define SRVR_DEFAULT_PORT 8080

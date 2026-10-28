@@ -1,6 +1,4 @@
-/*
-* server.c
-*
+/* server.c
 * Copyright (c) 2026 Rub3ck0r3
 * Licensed under the MIT License.
 */
@@ -23,10 +21,12 @@
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
+#include <stdatomic.h>
+#include <poll.h>
 
-#include "router.h"
-#include "server.h"
-#include "ev.h"
+#include "../include/net/router.h"
+#include "../include/net/server.h"
+#include "../include/event_loop/ev.h"
 
 /**
 * @brief Global flag indicating whether the server should continue running.
@@ -39,7 +39,7 @@
 */
 extern volatile sig_atomic_t srvr_running;
 
-static const char *LOG_PATH = "server.log";
+static const char *LOG_PATH = "bin/server.log";
 
 /**
 * @brief Write a formatted log message with a severity level.
@@ -61,8 +61,7 @@ static void log_with_level(const char *level, const char *fmt, va_list ap) {
     return;
   }
 
-  // We get the localtime_r right now to be able to print it in 
-  // logs
+  // We get the localtime_r right now to be able to print it in logs
   time_t now = time(NULL);
   struct tm tm_now;
   localtime_r(&now, &tm_now);
@@ -175,9 +174,10 @@ int load_server_config(const char *path, server_config *cfg) {
     if (!eq) {
       continue;
     }
+    // We apply this little trick to terminate the key string at the '=' character, so we can easily compare it later.
     *eq = '\0';
     char *key = line;
-    char *value = eq + 1;
+    char *value = eq + 1; 
 
     /* Strip trailing newline from the value. */
     char *nl = strchr(value, '\n');
@@ -185,6 +185,7 @@ int load_server_config(const char *path, server_config *cfg) {
       *nl = '\0';
     }
 
+    // Little switch to set the values of the server_config struct based on the key-value pairs read from the config file.
     if (strcmp(key, "port") == 0) {
       cfg->port = atoi(value);
     } else if (strcmp(key, "root") == 0) {
@@ -331,46 +332,68 @@ void server_run_threaded(int serverfd, const server_config *cfg) {
   // This directs the compiler not to do certain common optimizations 
   // on use of the variable lock. All the reads and writes for a volatile 
   // variable or field are really done, and done in the order specified by 
-  // the source code. 
+  // the source code. With this flag we are making mandatory that the server 
+  // loop will be interrupted when the signal handler sets srvr_running to 0.
+  // making that the server loop will exit gracefully.
+  // As we are using poll() to wait for incoming connections, we can set a timeout
+  // to periodically check the srvr_running flag and exit the loop if it has been cleared.
+  // also note that srvr_running is declared as volatile sig_atomic_t
+  //
   while (srvr_running) 
   {
-    int clientfd =
-        accept(serverfd, (struct sockaddr *)&clientaddr, &client_len);
-    if (clientfd == -1) 
-    {
-      if (!srvr_running && (errno == EINTR || errno == EBADF)) 
-      {
-        break;
+    // This is a simple example of using poll() to wait for incoming connections on the server socket.
+    struct pollfd pfd = {.fd = serverfd, .events = POLLIN};
+
+    // The poll() function waits for one of a set of file descriptors to become ready to perform I/O.
+    int ret = poll(&pfd, 1, 1000);
+
+    if (ret < 0) {
+        if (errno == EINTR) continue; // Interrumped by signal, check srvr_running and continue
+        perror("poll");
+        log_error("poll() failed, exiting server loop");
+        break; // 
+    }
+    
+    if (ret == 0) continue; // Timeout, no incoming connection, check srvr_running and continue
+    
+    // NOW it is safe to accept the incoming connection, as poll() has indicated that the 
+    // server socket is ready for reading (i.e., a new connection is pending).
+    if (pfd.revents & POLLIN) {
+        int clientfd = accept(serverfd, (struct sockaddr *)&clientaddr, &client_len);
+        
+        if (clientfd < 0) 
+        {
+            if (errno == EINTR) continue; // Interrupted by signal, check srvr_running and continue
+            perror("accept");
+            log_error("accept() failed to accept incoming connection");
+            continue;
+        }
+        
+        client_thread_args *cta = malloc(sizeof(*cta));
+        if (!cta) 
+        {
+          log_error("Out of memory for client_thread_args");
+          close(clientfd);
+          continue;
+        }
+        cta->clientfd = clientfd;
+        cta->cfg = *cfg;
+
+        // The pthread_create() function starts a new thread in the calling
+        // process.The new thread starts execution by invoking
+        // start_routine(); arg is passed as the sole argument of
+        // start_routine().
+        pthread_t tid;
+        if (pthread_create(&tid, NULL, client_thread_main, cta) != 0) 
+        {
+          log_error("Failed to create client thread");
+          close(clientfd);
+          free(cta);
+          continue;
+        } // The pthread_detach() function marks the thread identified by
+        // thread as detached.  When a detached thread terminates
+        pthread_detach(tid);
       }
-      perror("accept");
-      continue;
-    }
-
-    client_thread_args *cta = malloc(sizeof(*cta));
-    if (!cta) 
-    {
-      log_error("Out of memory for client_thread_args");
-      close(clientfd);
-      continue;
-    }
-    cta->clientfd = clientfd;
-    cta->cfg = *cfg;
-
-    // The pthread_create() function starts a new thread in the calling
-    // process.The new thread starts execution by invoking
-    // start_routine(); arg is passed as the sole argument of
-    // start_routine().
-    pthread_t tid;
-    if (pthread_create(&tid, NULL, client_thread_main, cta) != 0) 
-    {
-      log_error("Failed to create client thread");
-      close(clientfd);
-      free(cta);
-      continue;
-    }
-    // The pthread_detach() function marks the thread identified by
-    // thread as detached.  When a detached thread terminates
-    pthread_detach(tid);
   }
 
   close(serverfd);
@@ -767,8 +790,11 @@ void server_run_epoll(int serverfd, const server_config *cfg) {
     const int MAX_EVENTS = 64;
     struct epoll_event events[MAX_EVENTS];
 
+    // We continue using the srvr_running flag to control the server loop, allowing for graceful shutdown on signals.
+    // Now we start the main epoll event loop, which will handle incoming connections and client I/O events.
     while (srvr_running) 
     {
+        // Firstly we wait for events on the epoll instance. The timeout is set to 1000 ms to allow periodic checks of the srvr_running flag.
         int n = epoll_wait(epfd, events, MAX_EVENTS, 1000);
         if (n == -1) 
         {
@@ -780,10 +806,9 @@ void server_run_epoll(int serverfd, const server_config *cfg) {
             break;
         }
 
+        // Process each event returned by epoll_wait, as it is a standard procedure.
         for (int i = 0; i < n; ++i) {
-            /* Check if this is an event on the listening socket. */
             if (events[i].data.fd == serverfd) {
-                /* NEW CONNECTION LOOP */
                 while (srvr_running) {
                     struct sockaddr_in clientaddr;
                     socklen_t len = sizeof(clientaddr);
@@ -813,7 +838,7 @@ void server_run_epoll(int serverfd, const server_config *cfg) {
                         continue;
                     }
 
-                    /* Initialize client state. */
+                    // We initialize the client structure to prepare it for handling the connection.
                     client->clientfd = clientfd;
                     client->buffer_len = 0;
                     client->state = EPOLL_CLIENT_READING;
@@ -823,7 +848,7 @@ void server_run_epoll(int serverfd, const server_config *cfg) {
                     client->response_written = 0;
                     memset(&client->req, 0, sizeof(client->req));
 
-                    /* Register with epoll for reading. */
+                    // We register the new client socket with epoll to monitor for incoming data (EPOLLIN) and use edge-triggered mode (EPOLLET).
                     struct epoll_event cev;
                     cev.events = EPOLLIN | EPOLLET;
                     cev.data.ptr = client;
@@ -835,31 +860,26 @@ void server_run_epoll(int serverfd, const server_config *cfg) {
                         free(client);
                         continue;
                     }
-
                     log_info("Accepted client fd=%d", clientfd);
                 }
             }
-            // EXISTING CLIENTS
+            // Now we handle events for existing client connections. We check for errors, readability, and writability, and manage the client's state accordingly.
             else {
                 epoll_client *client = (epoll_client *)events[i].data.ptr;
                 int clientfd = client->clientfd;
 
-                if (events[i].events & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) {
-                    client->state = EPOLL_CLIENT_CLOSING;
-                } else if ((events[i].events & EPOLLIN) &&
-                           client->state == EPOLL_CLIENT_READING) {
-                    while (1) {
-                        size_t available = sizeof(client->buff) -
-                                           (size_t)client->buffer_len;
+                // Firstly, we handle readable events. If the client is in the READING state, we attempt to read 
+                // data into the buffer until we either fill it, encounter an error, or determine that the HTTP request is complete.
+                if ((events[i].events & EPOLLIN) && client->state == EPOLL_CLIENT_READING) {
+                    for (;;) {
+                        size_t available = sizeof(client->buff) - (size_t)client->buffer_len;
                         if (available == 0) {
                             log_warn("Request buffer overflow on fd=%d", clientfd);
                             client->state = EPOLL_CLIENT_CLOSING;
                             break;
                         }
 
-                        ssize_t bytes = read(clientfd,
-                                             client->buff + client->buffer_len,
-                                             available);
+                        ssize_t bytes = read(clientfd, client->buff + client->buffer_len, available);
                         if (bytes == -1) {
                             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                                 break;
@@ -874,46 +894,51 @@ void server_run_epoll(int serverfd, const server_config *cfg) {
                         }
 
                         client->buffer_len += (int)bytes;
-                        if (is_http_request_complete(client->buff,
-                                                     (size_t)client->buffer_len)) {
+                        if (is_http_request_complete(client->buff, (size_t)client->buffer_len)) {
                             epoll_handle_request(client, cfg);
                             client->request_parsed = 1;
                             break;
                         }
                     }
 
+                    // We check if the client has transitioned to the WRITING state after handling the request. 
+                    // If so, we modify the epoll event to monitor for writability (EPOLLOUT) instead of readability.
                     if (client->state == EPOLL_CLIENT_WRITING) {
-                        struct epoll_event cev;
-                        cev.events = EPOLLOUT | EPOLLET;
-                        cev.data.ptr = client;
+                        struct epoll_event cev = { .events = EPOLLOUT | EPOLLET, .data.ptr = client };
                         if (epoll_ctl(epfd, EPOLL_CTL_MOD, clientfd, &cev) == -1) {
                             perror("epoll_ctl MOD to EPOLLOUT");
                             client->state = EPOLL_CLIENT_CLOSING;
+                        } else {
+                            continue;
                         }
                     }
                 }
 
-                /* Handle writable events. */
-                if (events[i].events & EPOLLOUT) {
+                // We handle error events. If the kernel indicates an error or hang-up on the 
+                // socket, we transition the client to the CLOSING state for cleanup.
+                if (events[i].events & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) {
+                    client->state = EPOLL_CLIENT_CLOSING;
+                }
+
+                // Next, we handle writable events. If the client is in 
+                // the WRITING state, we attempt to send the queued response data.
+                if ((events[i].events & EPOLLOUT) && client->state == EPOLL_CLIENT_WRITING) {
+                    if (epoll_send_response(client) == -1) {
+                        client->state = EPOLL_CLIENT_CLOSING;
+                    }
+
                     if (client->state == EPOLL_CLIENT_WRITING) {
-                        if (epoll_send_response(client) == -1) {
+                        struct epoll_event cev = { .events = EPOLLOUT | EPOLLET, .data.ptr = client };
+                        if (epoll_ctl(epfd, EPOLL_CTL_MOD, clientfd, &cev) == -1) {
+                            perror("epoll_ctl MOD");
                             client->state = EPOLL_CLIENT_CLOSING;
                         }
-
-                        /* If still writing, modify epoll to wait for write again. */
-                        if (client->state == EPOLL_CLIENT_WRITING) {
-                            struct epoll_event cev;
-                            cev.events = EPOLLOUT | EPOLLET;
-                            cev.data.ptr = client;
-                            if (epoll_ctl(epfd, EPOLL_CTL_MOD, clientfd, &cev) == -1) {
-                                perror("epoll_ctl MOD");
-                                client->state = EPOLL_CLIENT_CLOSING;
-                            }
-                        }
                     }
                 }
 
-                /* Clean up if client is marked for closing. */
+                // Finally, we check if the client is in the CLOSING state. 
+                // If so, we remove it from the epoll instance, free any allocated 
+                // resources, and close the socket.
                 if (client->state == EPOLL_CLIENT_CLOSING) {
                     if (epoll_ctl(epfd, EPOLL_CTL_DEL, clientfd, NULL) == -1) {
                         perror("epoll_ctl DEL");

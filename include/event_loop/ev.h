@@ -6,7 +6,7 @@
 #ifndef SRVR_EPOLL_WRAPPER_H
 #define SRVR_EPOLL_WRAPPER_H
 
-#include "http.h"
+#include "../net/http.h"
 
 /* Client states in the epoll event loop */
 #define EPOLL_CLIENT_READING    0

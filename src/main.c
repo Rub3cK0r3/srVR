@@ -12,7 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "server.h"
+#include "../include/net/server.h"
 
 /*
 * Global running flag used for graceful shutdown.

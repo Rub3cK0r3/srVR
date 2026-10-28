@@ -17,7 +17,7 @@ TEST_TARGET := test_epoll
 TEST_SRCS   := tests/test_epoll.c src/server.c src/http.c src/router.c src/ev.c
 TEST_OBJS   := $(TEST_SRCS:.c=.o)
 
-.PHONY: all debug release clean test test-epoll
+.PHONY: all debug release clean test test-epoll test-server
 
 # By default build a debug binary; this is the most useful
 # configuration during development and when exploring the code.
@@ -43,17 +43,14 @@ src/%.o: src/%.c
 clean:
 	$(RM) $(OBJS) $(TARGET) $(TEST_OBJS) $(TEST_TARGET)
 
-# Build and run tests
+# Build and run the unit and live HTTP integration tests.
 test: CFLAGS := $(CFLAGS_DEBUG)
-test: test-epoll
+test: test-epoll test-server
 
 test-epoll: CFLAGS := $(CFLAGS_DEBUG)
-test-epoll: $(TEST_TARGET)
+test-epoll:
+	$(CC) $(CFLAGS) -o $(TEST_TARGET) $(TEST_SRCS) $(LDFLAGS)
 	./$(TEST_TARGET)
 
-$(TEST_TARGET): $(TEST_OBJS)
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
-
-tests/%.o: tests/%.c
-	$(CC) $(CFLAGS) -c -o $@ $<
-
+test-server:
+	./test_server.sh

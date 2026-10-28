@@ -1,238 +1,51 @@
-# 🖥 srVR
+# srVR
 
-![Release](https://img.shields.io/github/v/release/Rub3cK0r3/srVR)
-![C](https://img.shields.io/badge/language-C-blue)
-![License](https://img.shields.io/badge/license-educational-lightgrey)
-![OS](https://img.shields.io/badge/OS-POSIX-orange)
+srVR is a small HTTP server written in C11. It is an educational project for exploring TCP sockets, HTTP parsing, file serving, and two concurrency models without a web framework.
 
-**srVR** is a minimal **HTTP server** written in plain C, designed to teach how HTTP and TCP sockets work under the hood, without frameworks or external libraries.
+It is a working MVP, not a production server. The implementation focuses on being inspectable while practicing safer systems programming: bounded request and file sizes, explicit connection states, non-blocking I/O in epoll mode, error handling, and executable integration tests. These measures are learning examples, not a security or production guarantee.
 
-It is tiny, simple, and educational — perfect for learning low-level networking and HTTP basics. The project demonstrates two distinct concurrency models: **thread-per-connection** and **event-driven (epoll)**.
+## Stack
 
+- C11 and the standard C library
+- POSIX sockets, files, signals, and pthreads
+- Linux `epoll` for the event-driven mode
+- Make for builds and tests; no third-party runtime libraries
 
-## 💡 About the Author & Motivation
+The server can run one thread per connection (`use_epoll=0`) or use a non-blocking, event-driven loop (`use_epoll=1`). The epoll mode is Linux-specific; the threaded mode uses POSIX APIs.
 
-I built this project in my free time as a **Backend Systems Engineer** with a deep passion for low-level server internals and system architecture. 
+## Build and Run
 
-I am fascinated by how things work beneath the application layer—how operating systems handle traffic, manage file descriptors, and scale network I/O. **srVR** is part of my journey to master these concepts and transition into specialized roles within **Systems Engineering, Core Backend Infrastructure, or Network Programming**.
+Requirements: GCC or Clang, Make, and Linux for epoll mode.
 
-
-## 📍 Overview
-
-srVR demonstrates fundamental concepts in network programming:
-
-* **TCP socket programming** in C (POSIX standards)
-* **HTTP request parsing** and response handling
-* **Static file serving** (HTML, CSS, images, etc.)
-* **Concurrent connection handling** using two different models:
-  - Thread-per-connection model (traditional approach)
-  - Event-driven model using `epoll()` (modern Linux approach)
-* **Graceful shutdown** with signal handling (SIGINT)
-* **Configuration management** from config files
-* **Structured logging** with timestamps
-
-It is **not** a production-ready server — this is intentional. The focus is on teaching fundamentals and best practices, not implementing the full HTTP/1.1 specification.
-
-## ⚙ Features
-
-* **Zero external dependencies** — uses only POSIX APIs
-* **Static file serving** — HTTP GET/HEAD/POST for files
-* **Simple HTTP parsing** — enough to understand the protocol
-* **Dual concurrency models**:
-  - Thread-based (`server_run_threaded`) — one OS thread per connection
-  - Event-based (`server_run_epoll`) — single thread with Linux epoll
-* **Configuration file support** — simple key=value format
-* **Structured logging** — timestamped log file (`server.log`)
-* **Security basics** — directory traversal protection
-* **Clean code** — extensively commented, POSIX-compliant, easy to extend
-
-## 🛠 Requirements
-
-* **POSIX-compliant system**: Linux, macOS, BSD
-* **C compiler**: GCC, Clang, or any standard C99-compatible compiler
-* **Linux epoll support** (for epoll mode): Linux 2.6+ with libc support
-
-## 🚀 Build & Run
-
-### Quick Start
-
-```bash
-# Build the server
+```sh
 make
-
-# Run with default settings (port 8080, ./www directory)
-./bin/srVR
+./srVR
 ```
 
-### Manual Build
-
-```bash
-# Compile all sources
-gcc -pthread -o srVR \
-  src/main.c \
-  src/server.c \
-  src/router.c \
-  src/http.c \
-  src/ev.c
-```
-
-### Configuration
-
-Create or modify `config/server.conf`:
+The server reads `config/server.conf` from the current working directory. The default configuration listens on port `8080`, serves files from `./www`, and enables epoll:
 
 ```conf
-# Server listening port (default: 8080)
 port=8080
-
-# Document root directory (default: ./www)
-document_root=./www
-
-# Enable event-driven epoll mode (0=disabled, 1=enabled)
+root=./www
 use_epoll=1
 ```
 
-### Run the Server
+Set `use_epoll=0` to use the thread-per-connection mode. Press `Ctrl+C` to stop the server. Requests can be sent from another terminal:
 
-#### Basic Usage
-```bash
-# Start with default configuration (thread-based, port 8080)
-./bin/srVR
+```sh
+curl -i http://127.0.0.1:8080/
 ```
 
-#### With Thread-Based Model
-```bash
-# Edit config to use thread-based concurrency
-echo "use_epoll=0" > config/server.conf
-echo "port=8080" >> config/server.conf
-echo "document_root=./www" >> config/server.conf
+## Tests
 
-# Run the server
-./bin/srVR
-
-# The server will accept connections and spawn one thread per client
-# Access via browser: http://localhost:8080
+```sh
+make test
 ```
 
-#### With Event-Driven Model (Epoll)
-```bash
-# Edit config to use epoll
-echo "use_epoll=1" > config/server.conf
-echo "port=8080" >> config/server.conf
-echo "document_root=./www" >> config/server.conf
+This runs the C parser and live-server tests, then builds and launches the server for additional HTTP smoke tests. The smoke test uses `curl` and `python3`, an ephemeral port, and a temporary working directory; it does not overwrite the project configuration. Run either layer separately with `make test-epoll` or `make test-server`.
 
-# Run the server
-./bin/srVR
+## Scope
 
-# Single thread handles all clients via epoll
-# Scales to 10,000+ concurrent connections
-# Access via browser: http://localhost:8080
-```
+The MVP serves static files and demonstrates basic HTTP request and response handling. It does not implement the full HTTP specification, TLS, chunked transfer encoding, or production-grade connection management. The code and tests are intended to make those boundaries visible and provide a base for learning, not to replace a hardened web server.
 
-#### Custom Port and Root Directory
-```bash
-# Create custom configuration
-cat > config/server.conf << EOF
-port=9000
-document_root=./public
-use_epoll=1
-EOF
-
-# Run on port 9000
-./bin/srVR
-```
-
-#### Testing with curl
-```bash
-# GET request
-curl -v http://localhost:8080/index.html
-
-# HEAD request (no body)
-curl -I http://localhost:8080/
-
-# POST request with data
-curl -X POST -d "username=test&password=secret" http://localhost:8080/
-
-# Follow redirects
-curl -L http://localhost:8080/
-
-# Add custom headers
-curl -H "User-Agent: CustomClient" http://localhost:8080/
-```
-
-#### Background Execution
-```bash
-# Run server in background
-./bin/srVR &
-
-# Get the process ID
-SERVER_PID=$!
-
-# Do other tasks...
-
-# Stop server gracefully
-kill -SIGINT $SERVER_PID
-
-# Check logs
-tail -f server.log
-```
-
-### Stop the Server
-
-Press `Ctrl+C` (SIGINT) for graceful shutdown. The server will:
-1. Stop accepting new connections
-2. Allow existing connections to complete
-3. Close all sockets
-4. Exit cleanly
-
-## 🔧 Extending srVR
-
-### Add a New Route
-
-Edit `src/router.c` and modify `handle_client_connection()`:
-
-### Change the Listening Port
-
-Edit `config/server.conf`:
-
-```conf
-port=9000
-```
-
-### Modify Response Headers
-
-Edit `send_simple_response()` in `src/router.c` to add custom headers.
-
-## 🐛 Debugging
-
-### Use strace for System Calls
-
-```bash
-strace -e trace=network,accept,read,write ./bin/srVR
-```
-
----
-
-## 📜 License
-
-This project is licensed for educational purposes. See [LICENSE](LICENSE) for details.
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! Please:
-
-1. Keep code clean and well-commented
-2. Maintain POSIX compliance
-3. Add tests for new features
-4. Update documentation
-
----
-
-## 💡 Future Enhancements
-
-* HTTPS/TLS encryption
-* Multi-threaded epoll (using thread pools)
-* Performance benchmarking suite
-* More comprehensive HTTP parsing
-* JSON configuration format
+See [LICENSE](LICENSE) for licensing details.

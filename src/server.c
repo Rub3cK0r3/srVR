@@ -636,6 +636,8 @@ static void epoll_handle_request(epoll_client *client, const server_config *cfg)
                      header_size - (size_t)header_len,
                      "File too large");
             client->response_size = (size_t)header_len + 17;
+        } else if (strcmp(client->req.method, "HEAD") == 0) {
+            client->response_size = (size_t)header_len;
         } else {
             ssize_t read_bytes = read(filefd, 
                                        client->response_body + header_len,
@@ -656,7 +658,7 @@ static void epoll_handle_request(epoll_client *client, const server_config *cfg)
             log_info("POST body: %.*s", (int)client->req.body_length, client->req.body);
         }
         /* Fall through to serve file like GET. */
-        const char *error_body = "200 OK\r\nPOST received.";
+        const char *response_body = "POST received.";
         client->response_body = malloc(256);
         if (!client->response_body) {
             perror("malloc");
@@ -669,8 +671,7 @@ static void epoll_handle_request(epoll_client *client, const server_config *cfg)
                          "Content-Length: %zu\r\n"
                          "Connection: close\r\n"
                          "\r\n%s",
-                         strlen(error_body) - 9, /* skip "200 OK\r\n" */
-                         error_body + 9);
+                         strlen(response_body), response_body);
         if (n > 0) {
             client->response_size = (size_t)n;
         } else {

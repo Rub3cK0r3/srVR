@@ -11,31 +11,27 @@
  * Run:   ./test_epoll
  */
 
-#include <assert.h>
+#define _GNU_SOURCE
+
 #include <errno.h>
-#include <fcntl.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
-#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <sys/types.h>
-#include <time.h>
 #include <unistd.h>
 #include <pthread.h>
 #include <signal.h>
 #include <arpa/inet.h>
+#include <sys/time.h>
 
 #include "ev.h"
 #include "http.h"
 #include "server.h"
 
-/* Define the global server running flag (declared as extern in server.h) */
 volatile sig_atomic_t srvr_running = 1;
-
-/* Global for tests */
-static int test_port = 9999;
 static int tests_passed = 0;
 static int tests_failed = 0;
 
@@ -58,10 +54,6 @@ static void test_fail(const char *name, const char *reason) {
     test_log("✗ FAIL: %s - %s", name, reason);
     tests_failed++;
 }
-
-/* ============================================================================
- * Test 1: HTTP Request Completion Detection
- * ============================================================================ */
 
 static void test_http_completion(void) {
     test_log("\n=== Test: HTTP Request Completion Detection ===");
@@ -98,54 +90,6 @@ static void test_http_completion(void) {
         test_pass("HTTP completion: request with body");
     }
 }
-
-/* ============================================================================
- * Test 2: Epoll Client Structure
- * ============================================================================ */
-
-static void test_epoll_client_init(void) {
-    test_log("\n=== Test: Epoll Client Structure ===");
-
-    epoll_client *client = malloc(sizeof(epoll_client));
-    if (!client) {
-        test_fail("Epoll client: malloc", "Memory allocation failed");
-        return;
-    }
-
-    /* Initialize */
-    client->clientfd = 42;
-    client->buffer_len = 0;
-    client->state = EPOLL_CLIENT_READING;
-    client->request_parsed = 0;
-    client->response_body = NULL;
-    client->response_size = 0;
-    client->response_written = 0;
-
-    /* Verify initialization */
-    if (client->clientfd != 42) {
-        test_fail("Epoll client: fd assignment", "FD not set correctly");
-    } else {
-        test_pass("Epoll client: fd assignment");
-    }
-
-    if (client->state != EPOLL_CLIENT_READING) {
-        test_fail("Epoll client: initial state", "State should be READING");
-    } else {
-        test_pass("Epoll client: initial state");
-    }
-
-    if (client->response_body != NULL) {
-        test_fail("Epoll client: response_body init", "Should be NULL");
-    } else {
-        test_pass("Epoll client: response_body init");
-    }
-
-    free(client);
-}
-
-/* ============================================================================
- * Test 3: HTTP Parsing
- * ============================================================================ */
 
 static void test_http_parsing(void) {
     test_log("\n=== Test: HTTP Request Parsing ===");
@@ -214,224 +158,237 @@ static void test_http_parsing(void) {
     } else {
         test_pass("HTTP parsing: POST method");
     }
+
+    if (req.body && req.body_length == strlen("test=value") &&
+        memcmp(req.body, "test=value", req.body_length) == 0) {
+        test_pass("HTTP parsing: POST body");
+    } else {
+        test_fail("HTTP parsing: POST body", "Body content or length is incorrect");
+    }
 }
 
-/* ============================================================================
- * Test 4: Simple Integration Test
- * ============================================================================ */
+typedef struct server_thread_context {
+    int serverfd;
+    const server_config *cfg;
+} server_thread_context;
 
-static void test_integration_simple(void) {
-    test_log("\n=== Test: Simple Integration ===");
-
-    /* Create a test configuration */
-    server_config cfg;
-    cfg.port = test_port++;
-    strncpy(cfg.document_root, "./www", sizeof(cfg.document_root) - 1);
-    cfg.document_root[sizeof(cfg.document_root) - 1] = '\0';
-    cfg.use_epoll = 1;
-
-    /* Create listening socket */
-    int serverfd = server_listen(&cfg);
-    if (serverfd == -1) {
-        test_fail("Integration: server_listen", "Failed to create listening socket");
-        return;
-    }
-
-    test_pass("Integration: listening socket created");
-
-    /* Clean up */
-    close(serverfd);
+static void *run_epoll_server(void *arg) {
+    server_thread_context *context = arg;
+    server_run_epoll(context->serverfd, context->cfg);
+    return NULL;
 }
 
-/* ============================================================================
- * Test 5: Network Communication Test
- * ============================================================================ */
-
-static void test_network_http_request(void) {
-    test_log("\n=== Test: Network HTTP Request ===");
-
-    /* Create a listening socket */
-    server_config cfg;
-    cfg.port = test_port++;
-    strncpy(cfg.document_root, "./www", sizeof(cfg.document_root) - 1);
-    cfg.document_root[sizeof(cfg.document_root) - 1] = '\0';
-    cfg.use_epoll = 1;
-
-    int serverfd = server_listen(&cfg);
-    if (serverfd == -1) {
-        test_fail("Network test: listening socket", "Failed to create socket");
-        return;
-    }
-
-    test_pass("Network test: listening socket created");
-
-    /* Create a client socket and connect */
+static int send_http_request(unsigned short port, const char *request,
+                             char *response, size_t response_capacity) {
     int clientfd = socket(AF_INET, SOCK_STREAM, 0);
     if (clientfd == -1) {
-        test_fail("Network test: client socket", "Failed to create client socket");
-        close(serverfd);
-        return;
+        return -1;
+    }
+
+    struct timeval timeout = {.tv_sec = 3, .tv_usec = 0};
+    if (setsockopt(clientfd, SOL_SOCKET, SO_RCVTIMEO, &timeout,
+                   sizeof(timeout)) == -1) {
+        close(clientfd);
+        return -1;
     }
 
     struct sockaddr_in server_addr;
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-    server_addr.sin_port = htons(cfg.port);
+    server_addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    server_addr.sin_port = htons(port);
+    if (connect(clientfd, (struct sockaddr *)&server_addr,
+                sizeof(server_addr)) == -1) {
+        close(clientfd);
+        return -1;
+    }
 
-    /* Note: We won't actually connect since we'd need to run the server in another thread
-     * and manage timing. This is left as a framework for more advanced integration tests. */
+    size_t request_len = strlen(request);
+    size_t request_sent = 0;
+    while (request_sent < request_len) {
+        ssize_t bytes = send(clientfd, request + request_sent,
+                             request_len - request_sent, 0);
+        if (bytes == -1 && errno == EINTR) {
+            continue;
+        }
+        if (bytes <= 0) {
+            close(clientfd);
+            return -1;
+        }
+        request_sent += (size_t)bytes;
+    }
 
-    test_pass("Network test: client socket created");
+    size_t response_len = 0;
+    while (response_len < response_capacity - 1) {
+        ssize_t bytes = recv(clientfd, response + response_len,
+                             response_capacity - response_len - 1, 0);
+        if (bytes == 0) {
+            break;
+        }
+        if (bytes == -1 && errno == EINTR) {
+            continue;
+        }
+        if (bytes == -1) {
+            close(clientfd);
+            return -1;
+        }
+        response_len += (size_t)bytes;
+    }
 
+    response[response_len] = '\0';
     close(clientfd);
-    close(serverfd);
+    return 0;
 }
 
-/* ============================================================================
- * Test 6: State Machine Transitions
- * ============================================================================ */
-
-static void test_state_transitions(void) {
-    test_log("\n=== Test: State Machine Transitions ===");
-
-    epoll_client *client = malloc(sizeof(epoll_client));
-    if (!client) {
-        test_fail("State machine: malloc", "Memory allocation failed");
+static void expect_http_response(unsigned short port, const char *name,
+                                 const char *request, const char *status,
+                                 const char *expected_body, int body_must_be_empty) {
+    char response[16384];
+    if (send_http_request(port, request, response, sizeof(response)) == -1) {
+        test_fail(name, "HTTP exchange failed or timed out");
         return;
     }
 
-    /* Initial state */
-    client->state = EPOLL_CLIENT_READING;
-    if (client->state != EPOLL_CLIENT_READING) {
-        test_fail("State machine: initial state", "Should be READING");
-    } else {
-        test_pass("State machine: initial state");
-    }
-
-    /* Transition to WRITING */
-    client->state = EPOLL_CLIENT_WRITING;
-    if (client->state != EPOLL_CLIENT_WRITING) {
-        test_fail("State machine: transition to WRITING", "State not updated");
-    } else {
-        test_pass("State machine: transition to WRITING");
-    }
-
-    /* Transition to CLOSING */
-    client->state = EPOLL_CLIENT_CLOSING;
-    if (client->state != EPOLL_CLIENT_CLOSING) {
-        test_fail("State machine: transition to CLOSING", "State not updated");
-    } else {
-        test_pass("State machine: transition to CLOSING");
-    }
-
-    free(client);
-}
-
-/* ============================================================================
- * Test 7: Response Generation
- * ============================================================================ */
-
-static void test_response_generation(void) {
-    test_log("\n=== Test: Response Generation ===");
-
-    epoll_client *client = malloc(sizeof(epoll_client));
-    if (!client) {
-        test_fail("Response generation: malloc", "Memory allocation failed");
+    if (strncmp(response, status, strlen(status)) != 0) {
+        test_fail(name, "Unexpected HTTP status line");
         return;
     }
 
-    /* Simulate a simple response */
-    const char *response_text = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHello World";
-    client->response_body = malloc(strlen(response_text) + 1);
-    if (!client->response_body) {
-        test_fail("Response generation: response_body malloc", "Memory allocation failed");
-        free(client);
+    char *body = strstr(response, "\r\n\r\n");
+    if (!body) {
+        test_fail(name, "Response headers are not terminated");
+        return;
+    }
+    body += 4;
+
+    if (body_must_be_empty && *body != '\0') {
+        test_fail(name, "Response body should be empty");
+        return;
+    }
+    if (expected_body && !strstr(body, expected_body)) {
+        test_fail(name, "Expected response body content was not found");
         return;
     }
 
-    strcpy(client->response_body, response_text);
-    client->response_size = strlen(response_text);
-    client->response_written = 0;
-    client->state = EPOLL_CLIENT_WRITING;
-
-    if (client->response_size == strlen(response_text)) {
-        test_pass("Response generation: size calculation");
-    } else {
-        test_fail("Response generation: size calculation", "Size mismatch");
+    if (!body_must_be_empty) {
+        char *length_header = strstr(response, "Content-Length: ");
+        if (!length_header) {
+            test_fail(name, "Response is missing Content-Length");
+            return;
+        }
+        unsigned long declared_length = strtoul(length_header + 16, NULL, 10);
+        if (declared_length != strlen(body)) {
+            test_fail(name, "Content-Length does not match response body");
+            return;
+        }
     }
 
-    if (client->response_written == 0) {
-        test_pass("Response generation: initial write position");
-    } else {
-        test_fail("Response generation: initial write position", "Should be 0");
-    }
-
-    free(client->response_body);
-    free(client);
+    test_pass(name);
 }
 
-/* ============================================================================
- * Test 8: Buffer Management
- * ============================================================================ */
+static void test_network_http_request(void) {
+    test_log("\n=== Test: Live HTTP Integration ===");
 
-static void test_buffer_management(void) {
-    test_log("\n=== Test: Buffer Management ===");
-
-    epoll_client *client = malloc(sizeof(epoll_client));
-    if (!client) {
-        test_fail("Buffer management: malloc", "Memory allocation failed");
+    char original_cwd[PATH_MAX];
+    if (!getcwd(original_cwd, sizeof(original_cwd))) {
+        test_fail("HTTP integration setup", "Could not get current directory");
         return;
     }
 
-    /* Initialize buffer */
-    memset(client->buff, 0, sizeof(client->buff));
-    client->buffer_len = 0;
-
-    /* Simulate receiving data */
-    const char *data = "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n";
-    size_t data_len = strlen(data);
-
-    if (data_len <= sizeof(client->buff)) {
-        memcpy(client->buff, data, data_len);
-        client->buffer_len = (int)data_len;
-        test_pass("Buffer management: data accumulation");
-    } else {
-        test_fail("Buffer management: data accumulation", "Data too large");
+    char temp_dir_template[] = "/tmp/srvr-test-XXXXXX";
+    char *temp_dir = mkdtemp(temp_dir_template);
+    if (!temp_dir) {
+        test_fail("HTTP integration setup", "Could not create temporary directory");
+        return;
     }
 
-    if (client->buffer_len == (int)data_len) {
-        test_pass("Buffer management: length tracking");
-    } else {
-        test_fail("Buffer management: length tracking", "Length mismatch");
+    char log_path[PATH_MAX];
+    char document_root[sizeof(((server_config *)0)->document_root)];
+    if (snprintf(log_path, sizeof(log_path), "%s/server.log", temp_dir) >=
+            (int)sizeof(log_path) ||
+        snprintf(document_root, sizeof(document_root), "%s/www", original_cwd) >=
+            (int)sizeof(document_root)) {
+        test_fail("HTTP integration setup", "Test path is too long");
+        rmdir(temp_dir);
+        return;
     }
 
-    free(client);
+    server_config cfg;
+    cfg.port = 0;
+    snprintf(cfg.document_root, sizeof(cfg.document_root), "%s", document_root);
+    cfg.use_epoll = 1;
+
+    int serverfd = server_listen(&cfg);
+    if (serverfd == -1) {
+        test_fail("HTTP integration setup", "Could not create listening socket");
+        rmdir(temp_dir);
+        return;
+    }
+
+    struct sockaddr_in server_addr;
+    socklen_t address_len = sizeof(server_addr);
+    if (getsockname(serverfd, (struct sockaddr *)&server_addr, &address_len) == -1) {
+        test_fail("HTTP integration setup", "Could not discover ephemeral port");
+        close(serverfd);
+        rmdir(temp_dir);
+        return;
+    }
+    unsigned short port = ntohs(server_addr.sin_port);
+
+    if (chdir(temp_dir) == -1) {
+        test_fail("HTTP integration setup", "Could not isolate server log");
+        close(serverfd);
+        rmdir(temp_dir);
+        return;
+    }
+
+    server_thread_context context = {.serverfd = serverfd, .cfg = &cfg};
+    pthread_t server_thread;
+    srvr_running = 1;
+    int thread_error = pthread_create(&server_thread, NULL,
+                                     run_epoll_server, &context);
+    if (thread_error != 0) {
+        test_fail("HTTP integration setup", "Could not start server thread");
+        close(serverfd);
+        chdir(original_cwd);
+        rmdir(temp_dir);
+        return;
+    }
+
+    expect_http_response(port, "HTTP GET serves index",
+                         "GET /index.html HTTP/1.1\r\nHost: localhost\r\n\r\n",
+                         "HTTP/1.1 200 OK", "It works.", 0);
+    expect_http_response(port, "HTTP HEAD omits response body",
+                         "HEAD /index.html HTTP/1.1\r\nHost: localhost\r\n\r\n",
+                         "HTTP/1.1 200 OK", NULL, 1);
+    expect_http_response(port, "HTTP missing file returns 404",
+                         "GET /missing.html HTTP/1.1\r\nHost: localhost\r\n\r\n",
+                         "HTTP/1.1 404 Not Found", "404 Not Found", 0);
+    expect_http_response(port, "HTTP traversal returns 403",
+                         "GET /../LICENSE HTTP/1.1\r\nHost: localhost\r\n\r\n",
+                         "HTTP/1.1 403 Forbidden", "403 Forbidden", 0);
+    expect_http_response(port, "HTTP POST acknowledges request",
+                         "POST / HTTP/1.1\r\nHost: localhost\r\n"
+                         "Content-Length: 4\r\n\r\ntest",
+                         "HTTP/1.1 200 OK", "POST received.", 0);
+    expect_http_response(port, "HTTP unsupported method returns 405",
+                         "DELETE / HTTP/1.1\r\nHost: localhost\r\n\r\n",
+                         "HTTP/1.1 405 Method Not Allowed", "405 Method Not Allowed", 0);
+    expect_http_response(port, "HTTP malformed request returns 400",
+                         "BROKEN\r\n\r\n", "HTTP/1.1 400 Bad Request",
+                         "400 Bad Request", 0);
+
+    srvr_running = 0;
+    pthread_join(server_thread, NULL);
+    chdir(original_cwd);
+    unlink(log_path);
+    rmdir(temp_dir);
 }
-
-/* ============================================================================
- * Main Test Runner
- * ============================================================================ */
 
 int main(void) {
-    test_log("╔════════════════════════════════════════════════════╗");
-    test_log("║     srVR Epoll Implementation Test Suite          ║");
-    test_log("╚════════════════════════════════════════════════════╝");
-
-    /* Run all tests */
     test_http_completion();
-    test_epoll_client_init();
     test_http_parsing();
-    test_state_transitions();
-    test_response_generation();
-    test_buffer_management();
-    test_integration_simple();
     test_network_http_request();
-
-    /* Summary */
-    test_log("\n╔════════════════════════════════════════════════════╗");
-    test_log("║                   Test Summary                      ║");
-    test_log("╚════════════════════════════════════════════════════╝");
     test_log("Passed: %d", tests_passed);
     test_log("Failed: %d", tests_failed);
     test_log("Total:  %d", tests_passed + tests_failed);

@@ -24,9 +24,9 @@
 #include <stdatomic.h>
 #include <poll.h>
 
-#include "router.h"
-#include "server.h"
-#include "ev.h"
+#include "../include/net/router.h"
+#include "../include/net/server.h"
+#include "../include/event_loop/ev.h"
 
 /**
 * @brief Global flag indicating whether the server should continue running.
@@ -39,7 +39,7 @@
 */
 extern volatile sig_atomic_t srvr_running;
 
-static const char *LOG_PATH = "server.log";
+static const char *LOG_PATH = "bin/server.log";
 
 /**
 * @brief Write a formatted log message with a severity level.

@@ -13,7 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "http.h"
+#include "../include/net/http.h"
 
 /**
 * @brief Trims leading and trailing whitespace from a string.

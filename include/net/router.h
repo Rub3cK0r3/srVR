@@ -10,8 +10,7 @@
 #ifndef SRVR_ROUTER_H
 #define SRVR_ROUTER_H
 
-#include "http.h"
-#include "server.h"
+#include "../net/server.h"
 
 /*
  * Handle a single client connection:

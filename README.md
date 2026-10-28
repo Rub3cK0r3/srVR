@@ -19,7 +19,7 @@ Requirements: GCC or Clang, Make, and Linux for epoll mode.
 
 ```sh
 make
-./srVR
+./bin/srVR
 ```
 
 The server reads `config/server.conf` from the current working directory. The default configuration listens on port `8080`, serves files from `./www`, and enables epoll:
@@ -37,10 +37,6 @@ curl -i http://127.0.0.1:8080/
 ```
 
 ## Tests
-
-```sh
-make test
-```
 
 This runs the C parser and live-server tests, then builds and launches the server for additional HTTP smoke tests. The smoke test uses `curl` and `python3`, an ephemeral port, and a temporary working directory; it does not overwrite the project configuration. Run either layer separately with `make test-epoll` or `make test-server`.
 
